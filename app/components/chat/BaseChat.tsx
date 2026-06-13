@@ -83,6 +83,7 @@ interface BaseChatProps {
   setSelectedElement?: (element: ElementInfo | null) => void;
   addToolResult?: ({ toolCallId, result }: { toolCallId: string; result: any }) => void;
   onWebSearchResult?: (result: string) => void;
+  onOpenProjectList?: () => void;
 }
 
 export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
@@ -133,6 +134,7 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
         throw new Error('addToolResult not implemented');
       },
       onWebSearchResult,
+      onOpenProjectList,
     },
     ref,
   ) => {
@@ -349,6 +351,15 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
         data-chat-visible={showChat}
       >
         <ClientOnly>{() => <Menu />}</ClientOnly>
+        {onOpenProjectList && (
+          <button
+            onClick={onOpenProjectList}
+            className="fixed top-4 left-4 z-40 lg:hidden p-2 rounded-lg bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 shadow-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+            title="Projects"
+          >
+            <div className="i-ph:folder-open text-lg" />
+          </button>
+        )}
         <div className="flex flex-col lg:flex-row overflow-y-auto w-full h-full">
           <div className={classNames(styles.Chat, 'flex flex-col flex-grow lg:min-w-[var(--chat-min-width)] h-full')}>
             {!chatStarted && (

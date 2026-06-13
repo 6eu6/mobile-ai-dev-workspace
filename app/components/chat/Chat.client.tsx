@@ -29,6 +29,10 @@ import type { TextUIPart, FileUIPart, Attachment } from '@ai-sdk/ui-utils';
 import { useMCPStore } from '~/lib/stores/mcp';
 import type { LlmErrorAlertType } from '~/types/actions';
 import type { FileMap } from '~/lib/stores/files';
+import { RestoreOverlay } from '~/components/ui/RestoreOverlay';
+import { GenerationStatusBar } from '~/components/ui/GenerationStatusBar';
+import { ProjectList } from '~/components/ui/ProjectList';
+import { setGenerationStep, resetGenerationStatus, generationStatusStore } from '~/lib/stores/generationStatus';
 
 const logger = createScopedLogger('Chat');
 
@@ -38,12 +42,14 @@ export function Chat() {
   const { ready, initialMessages, storeMessageHistory, importChat, exportChat, takeDebouncedSnapshot } =
     useChatHistory();
   const title = useStore(description);
+  const [projectListOpen, setProjectListOpen] = useState(false);
   useEffect(() => {
     workbenchStore.setReloadedMessages(initialMessages.map((m) => m.id));
   }, [initialMessages]);
 
   return (
     <>
+      <RestoreOverlay />
       {ready && (
         <ChatImpl
           description={title}
@@ -52,8 +58,10 @@ export function Chat() {
           storeMessageHistory={storeMessageHistory}
           importChat={importChat}
           takeDebouncedSnapshot={takeDebouncedSnapshot}
+          onOpenProjectList={() => setProjectListOpen(true)}
         />
       )}
+      <ProjectList open={projectListOpen} onClose={() => setProjectListOpen(false)} />
     </>
   );
 }
@@ -83,10 +91,19 @@ interface ChatProps {
   exportChat: () => void;
   description?: string;
   takeDebouncedSnapshot: (chatIdx: string, files: FileMap, chatSummary?: string) => Promise<void>;
+  onOpenProjectList: () => void;
 }
 
 export const ChatImpl = memo(
-  ({ description, initialMessages, storeMessageHistory, importChat, exportChat, takeDebouncedSnapshot }: ChatProps) => {
+  ({
+    description,
+    initialMessages,
+    storeMessageHistory,
+    importChat,
+    exportChat,
+    takeDebouncedSnapshot,
+    onOpenProjectList,
+  }: ChatProps) => {
     useShortcuts();
 
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -116,7 +133,24 @@ export const ChatImpl = memo(
     });
     const { showChat } = useStore(chatStore);
     const [animationScope, animate] = useAnimate();
-    const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
+
+    /*
+     * B) Provider/settings restore: Load API keys synchronously from cookies
+     * to avoid "No providers enabled" flash after refresh.
+     */
+    const [apiKeys] = useState<Record<string, string>>(() => {
+      try {
+        const storedApiKeys = Cookies.get('apiKeys');
+
+        if (storedApiKeys) {
+          return JSON.parse(storedApiKeys);
+        }
+      } catch {
+        // ignore parse errors
+      }
+
+      return {};
+    });
     const [chatMode, setChatMode] = useState<'discuss' | 'build'>('build');
     const [selectedElement, setSelectedElement] = useState<ElementInfo | null>(null);
     const mcpSettings = useMCPStore((state) => state.settings);
@@ -157,11 +191,18 @@ export const ChatImpl = memo(
       sendExtraMessageFields: true,
       onError: (e) => {
         setFakeLoading(false);
+        setGenerationStep('error');
         handleError(e, 'chat');
       },
       onFinish: (message, response) => {
         const usage = response.usage;
         setData(undefined);
+        setGenerationStep('done');
+
+        // Auto-reset after 3 seconds
+        setTimeout(() => {
+          resetGenerationStatus();
+        }, 3000);
 
         if (usage) {
           console.log('Token usage:', usage);
@@ -183,8 +224,6 @@ export const ChatImpl = memo(
     useEffect(() => {
       const prompt = searchParams.get('prompt');
 
-      // console.log(prompt, searchParams, model, provider);
-
       if (prompt) {
         setSearchParams({});
         runAnimation();
@@ -194,6 +233,26 @@ export const ChatImpl = memo(
         });
       }
     }, [model, provider, searchParams]);
+
+    /*
+     * D) Generation status: Track streaming state and update generation step.
+     * When streaming starts, show 'waiting-for-model'. When files appear, show 'creating-files'.
+     */
+    useEffect(() => {
+      if (isLoading || fakeLoading) {
+        const currentStep = generationStatusStore.get().step;
+
+        if (currentStep === 'idle') {
+          setGenerationStep('waiting-for-model');
+        }
+
+        const fileCount = Object.keys(files).length;
+
+        if (fileCount > 0 && currentStep === 'waiting-for-model') {
+          setGenerationStep('creating-files');
+        }
+      }
+    }, [isLoading, fakeLoading, files]);
 
     const { enhancingPrompt, promptEnhanced, enhancePrompt, resetEnhancer } = usePromptEnhancer();
     const { parsedMessages, parseMessages } = useMessageParser();
@@ -605,14 +664,6 @@ export const ChatImpl = memo(
       [],
     );
 
-    useEffect(() => {
-      const storedApiKeys = Cookies.get('apiKeys');
-
-      if (storedApiKeys) {
-        setApiKeys(JSON.parse(storedApiKeys));
-      }
-    }, []);
-
     const handleModelChange = (newModel: string) => {
       setModel(newModel);
       Cookies.set('selectedModel', newModel, { expires: 30 });
@@ -638,77 +689,81 @@ export const ChatImpl = memo(
     );
 
     return (
-      <BaseChat
-        ref={animationScope}
-        textareaRef={textareaRef}
-        input={input}
-        showChat={showChat}
-        chatStarted={chatStarted}
-        isStreaming={isLoading || fakeLoading}
-        onStreamingChange={(streaming) => {
-          streamingState.set(streaming);
-        }}
-        enhancingPrompt={enhancingPrompt}
-        promptEnhanced={promptEnhanced}
-        sendMessage={sendMessage}
-        model={model}
-        setModel={handleModelChange}
-        provider={provider}
-        setProvider={handleProviderChange}
-        providerList={activeProviders}
-        handleInputChange={(e) => {
-          onTextareaChange(e);
-          debouncedCachePrompt(e);
-        }}
-        handleStop={abort}
-        description={description}
-        importChat={importChat}
-        exportChat={exportChat}
-        messages={messages.map((message, i) => {
-          if (message.role === 'user') {
-            return message;
-          }
+      <>
+        <GenerationStatusBar />
+        <BaseChat
+          ref={animationScope}
+          textareaRef={textareaRef}
+          input={input}
+          showChat={showChat}
+          chatStarted={chatStarted}
+          isStreaming={isLoading || fakeLoading}
+          onStreamingChange={(streaming) => {
+            streamingState.set(streaming);
+          }}
+          enhancingPrompt={enhancingPrompt}
+          promptEnhanced={promptEnhanced}
+          sendMessage={sendMessage}
+          model={model}
+          setModel={handleModelChange}
+          provider={provider}
+          setProvider={handleProviderChange}
+          providerList={activeProviders}
+          handleInputChange={(e) => {
+            onTextareaChange(e);
+            debouncedCachePrompt(e);
+          }}
+          handleStop={abort}
+          description={description}
+          importChat={importChat}
+          exportChat={exportChat}
+          messages={messages.map((message, i) => {
+            if (message.role === 'user') {
+              return message;
+            }
 
-          return {
-            ...message,
-            content: parsedMessages[i] || '',
-          };
-        })}
-        enhancePrompt={() => {
-          enhancePrompt(
-            input,
-            (input) => {
-              setInput(input);
-              scrollTextArea();
-            },
-            model,
-            provider,
-            apiKeys,
-          );
-        }}
-        uploadedFiles={uploadedFiles}
-        setUploadedFiles={setUploadedFiles}
-        imageDataList={imageDataList}
-        setImageDataList={setImageDataList}
-        actionAlert={actionAlert}
-        clearAlert={() => workbenchStore.clearAlert()}
-        supabaseAlert={supabaseAlert}
-        clearSupabaseAlert={() => workbenchStore.clearSupabaseAlert()}
-        deployAlert={deployAlert}
-        clearDeployAlert={() => workbenchStore.clearDeployAlert()}
-        llmErrorAlert={llmErrorAlert}
-        clearLlmErrorAlert={clearApiErrorAlert}
-        data={chatData}
-        chatMode={chatMode}
-        setChatMode={setChatMode}
-        append={append}
-        designScheme={designScheme}
-        setDesignScheme={setDesignScheme}
-        selectedElement={selectedElement}
-        setSelectedElement={setSelectedElement}
-        addToolResult={addToolResult}
-        onWebSearchResult={handleWebSearchResult}
-      />
+            return {
+              ...message,
+              content: parsedMessages[i] || '',
+            };
+          })}
+          enhancePrompt={() => {
+            enhancePrompt(
+              input,
+              (input) => {
+                setInput(input);
+                scrollTextArea();
+              },
+              model,
+              provider,
+              apiKeys,
+            );
+          }}
+          uploadedFiles={uploadedFiles}
+          setUploadedFiles={setUploadedFiles}
+          imageDataList={imageDataList}
+          setImageDataList={setImageDataList}
+          actionAlert={actionAlert}
+          clearAlert={() => workbenchStore.clearAlert()}
+          supabaseAlert={supabaseAlert}
+          clearSupabaseAlert={() => workbenchStore.clearSupabaseAlert()}
+          deployAlert={deployAlert}
+          clearDeployAlert={() => workbenchStore.clearDeployAlert()}
+          llmErrorAlert={llmErrorAlert}
+          clearLlmErrorAlert={clearApiErrorAlert}
+          data={chatData}
+          chatMode={chatMode}
+          setChatMode={setChatMode}
+          append={append}
+          designScheme={designScheme}
+          setDesignScheme={setDesignScheme}
+          selectedElement={selectedElement}
+          setSelectedElement={setSelectedElement}
+          addToolResult={addToolResult}
+          onWebSearchResult={handleWebSearchResult}
+          onOpenProjectList={onOpenProjectList}
+        />
+      </>
     );
   },
 );

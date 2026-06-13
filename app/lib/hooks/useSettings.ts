@@ -76,7 +76,17 @@ export function useSettings(): UseSettingsReturn {
   const promptId = useStore(promptStore);
   const isLatestBranch = useStore(latestBranchStore);
   const autoSelectTemplate = useStore(autoSelectStarterTemplate);
-  const [activeProviders, setActiveProviders] = useState<ProviderInfo[]>([]);
+
+  /*
+   * B) Provider/settings restore: Initialize activeProviders synchronously
+   * from the providersStore to avoid showing "No providers enabled" flash.
+   */
+  const [activeProviders, setActiveProviders] = useState<ProviderInfo[]>(() => {
+    const currentProviders = providersStore.get();
+    return Object.entries(currentProviders)
+      .filter(([_key, provider]) => provider.settings.enabled)
+      .map(([_k, p]) => p);
+  });
   const contextOptimizationEnabled = useStore(enableContextOptimizationStore);
   const tabConfiguration = useStore(tabConfigurationStore);
   const [settings, setSettings] = useState<Settings>(() => {

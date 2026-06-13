@@ -5,6 +5,7 @@ import { generateId, type JSONValue, type Message } from 'ai';
 import { toast } from 'react-toastify';
 import { workbenchStore } from '~/lib/stores/workbench';
 import { logStore } from '~/lib/stores/logs';
+import { setRestoreStep, isRestoring } from '~/lib/stores/generationStatus';
 import {
   getMessages,
   getNextId,
@@ -99,21 +100,25 @@ export function useChatHistory() {
     }
 
     if (mixedId) {
+      // A) Restore UX: Show restore overlay with progress steps
+      isRestoring.set(true);
+      setRestoreStep('loading-messages');
+
       Promise.all([getMessages(db, mixedId), getSnapshot(db, mixedId)])
         .then(async ([storedMessages, snapshot]) => {
-          /*
-           * FIX #5: Do not redirect to / if a snapshot exists but messages are empty.
-           * This can happen if the page was refreshed during streaming.
-           */
           const hasMessages = storedMessages && storedMessages.messages.length > 0;
           const hasSnapshot = snapshot && snapshot.files && Object.keys(snapshot.files).length > 0;
 
           if (!hasMessages && !hasSnapshot) {
+            isRestoring.set(false);
             navigate('/', { replace: true });
             setReady(true);
 
             return;
           }
+
+          // A) Restore UX: Step - restoring chat
+          setRestoreStep('restoring-chat');
 
           if (hasMessages) {
             const validSnapshot = snapshot || { chatIndex: '', files: {} };
@@ -135,15 +140,18 @@ export function useChatHistory() {
             }
 
             let filteredMessages = storedMessages.messages.slice(startingIdx + 1, endingIdx);
-            let archivedMessages: Message[] = [];
+            let archivedMsgs: Message[] = [];
 
             if (startingIdx >= 0) {
-              archivedMessages = storedMessages.messages.slice(0, startingIdx + 1);
+              archivedMsgs = storedMessages.messages.slice(0, startingIdx + 1);
             }
 
-            setArchivedMessages(archivedMessages);
+            setArchivedMessages(archivedMsgs);
 
             if (startingIdx > 0) {
+              // A) Restore UX: Step - restoring files
+              setRestoreStep('restoring-files');
+
               const files = Object.entries(validSnapshot?.files || {})
                 .map(([key, value]) => {
                   if (value?.type !== 'file') {
@@ -159,6 +167,14 @@ export function useChatHistory() {
               const projectCommands = await detectProjectCommands(files);
 
               const commandActionsString = createCommandActionsString(projectCommands);
+
+              // Check if generation was interrupted (artifact open but not closed)
+              const snapshotMessage = storedMessages.messages[snapshotIndex];
+              const wasInterrupted =
+                snapshotMessage?.role === 'assistant' && snapshotMessage.content
+                  ? snapshotMessage.content.includes('<boltArtifact') &&
+                    !snapshotMessage.content.includes('</boltArtifact')
+                  : false;
 
               filteredMessages = [
                 {
@@ -204,9 +220,22 @@ ${value.content}
                 ...filteredMessages,
               ];
 
-              // FIX #4: Restore workbenchStore.files from snapshot AND restore WebContainer files
+              // A) Restore UX: Step - restoring WebContainer
+              setRestoreStep('restoring-webcontainer', wasInterrupted);
+
               workbenchStore.files.set(validSnapshot.files);
-              restoreSnapshot(mixedId, validSnapshot);
+              await restoreSnapshot(mixedId, validSnapshot);
+
+              // A) Restore UX: Done
+              setRestoreStep('done', wasInterrupted);
+
+              if (wasInterrupted) {
+                toast.info('Generation was interrupted. Restored the latest saved snapshot.', { autoClose: 5000 });
+              } else {
+                toast.success('Workspace restored from last snapshot.', { autoClose: 3000 });
+              }
+            } else {
+              setRestoreStep('done');
             }
 
             setInitialMessages(filteredMessages);
@@ -216,10 +245,9 @@ ${value.content}
             chatId.set(storedMessages.id);
             chatMetadata.set(storedMessages.metadata);
           } else if (hasSnapshot) {
-            /*
-             * FIX #5: We have a snapshot but no messages. Restore from snapshot.
-             * This can happen if the user refreshed during streaming before messages were saved.
-             */
+            // Snapshot exists but no messages - restore from snapshot
+            setRestoreStep('restoring-files', true);
+
             const validSnapshot = snapshot;
 
             const files = Object.entries(validSnapshot.files || {})
@@ -280,20 +308,18 @@ ${value.content}
               },
             ];
 
-            // Restore workbenchStore.files and WebContainer
+            setRestoreStep('restoring-webcontainer', true);
+
             workbenchStore.files.set(validSnapshot.files);
-            restoreSnapshot(mixedId, validSnapshot);
+            await restoreSnapshot(mixedId, validSnapshot);
+
+            setRestoreStep('done', true);
+
+            toast.info('Generation was interrupted. Restored the latest saved snapshot.', { autoClose: 5000 });
 
             setInitialMessages(restoredMessages);
-
-            /*
-             * We need to set chatId from the URL since we have no stored messages
-             * Try to get it from the storedMessages id or fall back to mixedId
-             */
             chatId.set(storedMessages?.id || mixedId);
             setUrlId(storedMessages?.urlId);
-
-            toast.info('Restored last saved snapshot (generation was interrupted)');
           }
 
           setReady(true);
@@ -303,6 +329,7 @@ ${value.content}
 
           logStore.logError('Failed to load chat messages or snapshot', error);
           toast.error('Failed to load chat: ' + error.message);
+          setRestoreStep('error');
           setReady(true);
         });
     } else {
@@ -334,10 +361,6 @@ ${value.content}
     [db],
   );
 
-  /**
-   * FIX #3: Debounced snapshot save during streaming.
-   * Called from the files change watcher to persist files periodically during generation.
-   */
   const takeDebouncedSnapshot = useCallback(
     async (chatIdx: string, files: FileMap, chatSummary?: string) => {
       const id = chatId.get();
@@ -408,18 +431,15 @@ ${value.content}
 
       messages = messages.filter((m) => !m.annotations?.includes('no-store'));
 
-      // FIX #1: Create chatId immediately on first message, not waiting for firstArtifact
+      // FIX #1: Create chatId immediately on first message
       if (!chatId.get()) {
         const nextId = await getNextId(db);
         chatId.set(nextId);
-
-        // Navigate to the new chat URL immediately
         navigateChat(nextId);
       }
 
       let _urlId = urlId;
 
-      // FIX #1: Use the first user message to generate urlId instead of requiring firstArtifact
       if (!urlId) {
         const firstUserMessage = messages.find((m) => m.role === 'user');
         const artifactId = workbenchStore.firstArtifact?.id || firstUserMessage?.id || 'chat';
@@ -445,17 +465,14 @@ ${value.content}
         }
       }
 
-      // FIX #2 & #3: Take snapshot with current files on every save, debounced during streaming
       const currentFiles = workbenchStore.files.get();
       const currentChatId = chatId.get();
 
       if (currentChatId) {
-        // Always save snapshot immediately with storeMessageHistory
         takeSnapshot(messages[messages.length - 1].id, currentFiles, _urlId, chatSummary);
       }
 
       if (!description.get()) {
-        // Use firstArtifact title, or first user message as description
         const firstArtifact = workbenchStore.firstArtifact;
 
         if (firstArtifact?.title) {
@@ -464,7 +481,6 @@ ${value.content}
           const firstUserMsg = messages.find((m) => m.role === 'user');
 
           if (firstUserMsg && typeof firstUserMsg.content === 'string') {
-            // Take first 80 chars of user message as description
             const desc = firstUserMsg.content.slice(0, 80).replace(/\n/g, ' ').trim();
 
             if (desc) {
@@ -474,7 +490,6 @@ ${value.content}
         }
       }
 
-      // chatId should already be set from the early check above
       const finalChatId = chatId.get();
 
       if (!finalChatId) {
@@ -499,10 +514,6 @@ ${value.content}
         toast.error('Failed to save chat: ' + (error instanceof Error ? error.message : 'Unknown error'));
       }
     },
-
-    /**
-     * FIX #3: Expose debounced snapshot saver for use during streaming file changes.
-     */
     takeDebouncedSnapshot,
     duplicateCurrentChat: async (listItemId: string) => {
       if (!db || (!mixedId && !listItemId)) {
@@ -518,13 +529,13 @@ ${value.content}
         console.log(error);
       }
     },
-    importChat: async (description: string, messages: Message[], metadata?: IChatMetadata) => {
+    importChat: async (desc: string, messages: Message[], metadata?: IChatMetadata) => {
       if (!db) {
         return;
       }
 
       try {
-        const newId = await createChatFromMessages(db, description, messages, metadata);
+        const newId = await createChatFromMessages(db, desc, messages, metadata);
         window.location.href = `/chat/${newId}`;
         toast.success('Chat imported successfully');
       } catch (error) {
@@ -560,11 +571,6 @@ ${value.content}
   };
 }
 
-/**
- * FIX #6: Use window.history.replaceState but also make the URL restorable
- * by storing the mapping in IndexedDB. The navigate function is kept but we also
- * ensure the URL change is reflected so reload works independently.
- */
 function navigateChat(nextId: string) {
   const url = new URL(window.location.href);
   url.pathname = `/chat/${nextId}`;

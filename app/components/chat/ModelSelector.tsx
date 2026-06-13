@@ -433,9 +433,22 @@ export const ModelSelector = ({
   if (providerList.length === 0) {
     return (
       <div className="mb-2 p-4 rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-prompt-background text-bolt-elements-textPrimary">
-        <p className="text-center">
-          No providers are currently enabled. Please enable at least one provider in the settings to start using the
-          chat.
+        <p className="text-center">No providers are currently enabled.</p>
+        <p className="text-center mt-2">
+          <button
+            onClick={() => {
+              /*
+               * Open settings panel via zustand store.
+               * Import dynamically to avoid circular deps.
+               */
+              import('~/lib/stores/settings').then(({ useSettingsStore }) => {
+                useSettingsStore.getState().openSettings();
+              });
+            }}
+            className="text-purple-600 dark:text-purple-400 hover:underline font-medium"
+          >
+            Open Settings to enable a provider →
+          </button>
         </p>
       </div>
     );
