@@ -1,0 +1,65 @@
+/**
+ * Mobile-first styles for the bolt.diy mobile shell.
+ *
+ * These styles only apply on viewports < 640px (the "sm" breakpoint).
+ * They are designed to coexist with the desktop layout without breaking it.
+ *
+ * Key principles:
+ * - All mobile overrides use @media (max-width: 639px) to avoid
+ *   affecting desktop.
+ * - No desktop selectors are modified.
+ * - The bottom tab bar height is 56px + safe-area-inset-bottom.
+ */
+
+/* On mobile, add bottom padding to the chat area so the ChatBox
+   input is not hidden behind the bottom tab bar. */
+@media (max-width: 639px) {
+  /* Chat area: reduce the min-width constraint that forces side-by-side layout */
+  .Chat {
+    --chat-min-width: 0px !important;
+    min-width: 0 !important;
+  }
+
+  /* Workbench: on mobile, override positioning to be full-screen
+     and account for the bottom tab bar height */
+  .z-workbench > div > div {
+    bottom: calc(56px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  /* Hide the sidebar menu on mobile — users navigate via bottom tabs instead */
+  .z-sidebar {
+    display: none !important;
+  }
+
+  /* Hide the sidebar toggle button in the header on mobile */
+  [class*='i-ph:sidebar-simple'],
+  [class*='i-ph:sidebar-simple-fill'] {
+    display: none !important;
+  }
+
+  /* On mobile, the workbench close button (X) should switch back to chat tab
+     instead of just closing the workbench. We keep the button visible but
+     the behavior is handled by the MobileShell sync effect. */
+
+  /* Make the header more compact on mobile */
+  /* The header height variable is used by workbench positioning */
+  :root {
+    --header-height: 48px;
+  }
+
+  /* Hide example prompts and starter templates on mobile to reduce scroll.
+     Users can still access them by scrolling down in the chat tab. */
+  /* (keep them visible for now — they're useful for first-time users) */
+
+  /* BUG-3 FIX: The ControlPanel settings dialog is hardcoded to w-[1200px] h-[90vh]
+     which overflows on mobile. Override the inner container of any Radix dialog
+     to be full-screen on small viewports so the settings dialog is usable on phones.
+     We use the child combinator to target the first div inside the dialog content. */
+  [role='dialog'] > div {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    border-radius: 0 !important;
+  }
+}
