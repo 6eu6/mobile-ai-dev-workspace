@@ -6,8 +6,33 @@ import {
   setGenerationStep,
 } from '~/lib/stores/generationStatus';
 import { classNames } from '~/utils/classNames';
+import { AgentStatusPill, type AgentStatus } from './workspace/AgentStatusPill';
 
 const STEPS_ORDER = ['waiting-for-model', 'creating-files', 'updating-workspace', 'starting-preview', 'done'] as const;
+
+/**
+ * Maps a GenerationStep to an AgentStatus for the AgentStatusPill.
+ */
+function stepToAgentStatus(step: string, isStuck: boolean): AgentStatus {
+  if (isStuck) {
+    return 'stuck';
+  }
+
+  switch (step) {
+    case 'waiting-for-model':
+      return 'thinking';
+    case 'creating-files':
+    case 'updating-workspace':
+    case 'starting-preview':
+      return 'generating';
+    case 'done':
+      return 'done';
+    case 'error':
+      return 'error';
+    default:
+      return 'idle';
+  }
+}
 
 export function GenerationStatusBar() {
   const status = useStore(generationStatusStore);
@@ -19,15 +44,7 @@ export function GenerationStatusBar() {
   const isDone = status.step === 'done';
   const isError = status.step === 'error';
   const isActive = !isDone && !isError;
-  const elapsed = status.startTime ? Math.round((Date.now() - status.startTime) / 1000) : 0;
-
-  // Calculate progress based on step
-  const currentStepIndex = STEPS_ORDER.indexOf(status.step as any);
-  const progressPercent = isDone
-    ? 100
-    : isError
-      ? 0
-      : Math.min(Math.round((currentStepIndex / (STEPS_ORDER.length - 1)) * 100), 90);
+  const agentStatus = stepToAgentStatus(status.step, status.isStuck);
 
   return (
     <div
@@ -47,24 +64,24 @@ export function GenerationStatusBar() {
         <div className="absolute inset-0 opacity-20">
           <div
             className="h-full bg-gradient-to-r from-[var(--bolt-gradient-start)] to-[var(--bolt-gradient-end)] transition-all duration-1000 ease-out"
-            style={{ width: `${progressPercent}%` }}
+            style={{
+              width: `${
+                isDone
+                  ? 100
+                  : isError
+                    ? 0
+                    : Math.min(
+                        Math.round((STEPS_ORDER.indexOf(status.step as any) / (STEPS_ORDER.length - 1)) * 100),
+                        90,
+                      )
+              }%`,
+            }}
           />
         </div>
       )}
 
-      {/* Spinner for active states */}
-      {isActive && (
-        <div className="relative w-4 h-4 shrink-0">
-          <div className="absolute inset-0 rounded-full border-2 border-accent-200 dark:border-purple-800" />
-          <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-[var(--bolt-gradient-mid)] animate-spin" />
-        </div>
-      )}
-
-      {/* Done icon */}
-      {isDone && <div className="i-ph:check-circle-fill text-base shrink-0" />}
-
-      {/* Error icon */}
-      {isError && <div className="i-ph:warning-circle-fill text-base shrink-0" />}
+      {/* Agent status pill */}
+      <AgentStatusPill status={agentStatus} compact={isActive} />
 
       {/* Status text */}
       <span className="relative font-medium truncate">{GENERATION_STEP_LABELS[status.step]}</span>
@@ -79,25 +96,31 @@ export function GenerationStatusBar() {
       {/* Step dots indicator */}
       {isActive && (
         <div className="relative flex items-center gap-1 ml-1">
-          {STEPS_ORDER.slice(0, -1).map((step, i) => (
-            <div
-              key={step}
-              className={classNames(
-                'w-1.5 h-1.5 rounded-full transition-all duration-300',
-                i < currentStepIndex
-                  ? 'bg-accent-500 dark:bg-purple-400'
-                  : i === currentStepIndex
-                    ? 'bg-accent-500 dark:bg-purple-400 scale-125'
-                    : 'bg-accent-200 dark:bg-purple-800',
-              )}
-            />
-          ))}
+          {STEPS_ORDER.slice(0, -1).map((step, i) => {
+            const currentStepIndex = STEPS_ORDER.indexOf(status.step as any);
+
+            return (
+              <div
+                key={step}
+                className={classNames(
+                  'w-1.5 h-1.5 rounded-full transition-all duration-300',
+                  i < currentStepIndex
+                    ? 'bg-accent-500 dark:bg-purple-400'
+                    : i === currentStepIndex
+                      ? 'bg-accent-500 dark:bg-purple-400 scale-125'
+                      : 'bg-accent-200 dark:bg-purple-800',
+                )}
+              />
+            );
+          })}
         </div>
       )}
 
       {/* Elapsed time */}
-      {isActive && elapsed > 5 && (
-        <span className="relative text-xs opacity-50 ml-auto shrink-0 font-mono">{elapsed}s</span>
+      {isActive && status.startTime && Math.round((Date.now() - status.startTime) / 1000) > 5 && (
+        <span className="relative text-xs opacity-50 ml-auto shrink-0 font-mono">
+          {Math.round((Date.now() - status.startTime) / 1000)}s
+        </span>
       )}
 
       {/* Stuck indicator */}
