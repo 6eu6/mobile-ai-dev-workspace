@@ -72,6 +72,7 @@ export class ActionRunner {
   onAlert?: (alert: ActionAlert) => void;
   onSupabaseAlert?: (alert: SupabaseAlert) => void;
   onDeployAlert?: (alert: DeployAlert) => void;
+  onFileWritten?: (filePath: string, content: string) => void;
   buildOutput?: { path: string; exitCode: number; output: string };
 
   constructor(
@@ -80,12 +81,14 @@ export class ActionRunner {
     onAlert?: (alert: ActionAlert) => void,
     onSupabaseAlert?: (alert: SupabaseAlert) => void,
     onDeployAlert?: (alert: DeployAlert) => void,
+    onFileWritten?: (filePath: string, content: string) => void,
   ) {
     this.#webcontainer = webcontainerPromise;
     this.#shellTerminal = getShellTerminal;
     this.onAlert = onAlert;
     this.onSupabaseAlert = onSupabaseAlert;
     this.onDeployAlert = onDeployAlert;
+    this.onFileWritten = onFileWritten;
   }
 
   addAction(data: ActionCallbackData) {
@@ -333,6 +336,13 @@ export class ActionRunner {
     try {
       await webcontainer.fs.writeFile(relativePath, action.content);
       logger.debug(`File written ${relativePath}`);
+
+      /*
+       * Proactively register the file with the workbench so it appears in the
+       * file tree/preview immediately, without depending on the FS watcher
+       * (which is unreliable on some platforms, notably mobile browsers).
+       */
+      this.onFileWritten?.(action.filePath, action.content);
     } catch (error) {
       logger.error('Failed to write file\n\n', error);
     }

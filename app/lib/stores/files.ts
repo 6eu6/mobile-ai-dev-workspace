@@ -589,6 +589,44 @@ export class FilesStore {
     }
   }
 
+  /**
+   * Register a file that has just been written directly to the WebContainer
+   * (e.g. by the action runner during generation) into the in-memory file map,
+   * without waiting for the filesystem watcher to fire.
+   *
+   * The watcher (`webcontainer.internal.watchPaths`) is the normal source of
+   * truth, but its `add`/`change` events are not delivered reliably on every
+   * platform — notably inside mobile browsers — which left generated files
+   * invisible in the file tree and preview even though they existed on disk.
+   * Calling this right after a write makes the workspace deterministic; if the
+   * watcher does fire later it simply re-sets the same entry.
+   */
+  registerFile(filePath: string, content: string, isBinary = false) {
+    const currentFiles = this.files.get();
+    const updates: FileMap = {};
+
+    // Ensure ancestor folder entries exist so the tree can render the file.
+    if (filePath.startsWith(`${WORK_DIR}/`)) {
+      const relative = filePath.slice(WORK_DIR.length + 1);
+      const segments = relative.split('/');
+      let accumulated = WORK_DIR;
+
+      for (let i = 0; i < segments.length - 1; i++) {
+        accumulated += `/${segments[i]}`;
+
+        if (!currentFiles[accumulated] && !updates[accumulated]) {
+          updates[accumulated] = { type: 'folder' };
+        }
+      }
+    }
+
+    const existing = currentFiles[filePath];
+    const isLocked = existing?.type === 'file' ? existing.isLocked : false;
+
+    updates[filePath] = { type: 'file', content, isBinary, isLocked };
+    this.files.set({ ...currentFiles, ...updates });
+  }
+
   async #init() {
     const webcontainer = await this.#webcontainer;
 

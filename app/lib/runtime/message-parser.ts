@@ -150,7 +150,7 @@ export class StreamingMessageParser {
 
             if ('type' in currentAction && currentAction.type === 'file') {
               // Remove markdown code block syntax if present and file is not markdown
-              if (!currentAction.filePath.endsWith('.md')) {
+              if (!currentAction.filePath?.endsWith('.md')) {
                 content = cleanoutMarkdownSyntax(content);
                 content = cleanEscapedTags(content);
               }
@@ -182,7 +182,7 @@ export class StreamingMessageParser {
             if ('type' in currentAction && currentAction.type === 'file') {
               let content = input.slice(i);
 
-              if (!currentAction.filePath.endsWith('.md')) {
+              if (!currentAction.filePath?.endsWith('.md')) {
                 content = cleanoutMarkdownSyntax(content);
                 content = cleanEscapedTags(content);
               }
@@ -366,10 +366,17 @@ export class StreamingMessageParser {
         (actionAttributes as SupabaseAction).filePath = filePath;
       }
     } else if (actionType === 'file') {
-      const filePath = this.#extractAttribute(actionTag, 'filePath') as string;
+      let filePath = this.#extractAttribute(actionTag, 'filePath') as string;
 
       if (!filePath) {
-        logger.debug('File path not specified');
+        /*
+         * Some models emit a file action without a filePath attribute. Rather
+         * than letting `undefined.endsWith(...)` crash the whole parser (and
+         * blank the app), fall back to a generic, valid filename so the content
+         * is still surfaced as a file the user can rename/export.
+         */
+        filePath = `untitled-${Date.now()}.txt`;
+        logger.warn(`File action missing filePath; falling back to ${filePath}`);
       }
 
       (actionAttributes as FileAction).filePath = filePath;

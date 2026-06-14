@@ -505,6 +505,10 @@ export class WorkbenchStore {
 
           this.deployAlert.set(alert);
         },
+        (filePath, content) => {
+          // Mirror writes into the file store immediately (watcher-independent).
+          this.#filesStore.registerFile(filePath, content);
+        },
       ),
     });
   }
