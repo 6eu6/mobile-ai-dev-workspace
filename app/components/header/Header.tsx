@@ -39,17 +39,22 @@ export function Header() {
           <div className="i-ph:sidebar-simple text-xl" />
         </button>
         <div className="i-ph:sidebar-simple-duotone text-xl opacity-60 group-hover:opacity-100 transition-opacity duration-200 hidden sm:block" />
-        <a href="/" className="flex items-center">
-          <img
-            src="/logo-light-styled.png"
-            alt="logo"
-            className="h-5 sm:h-7 inline-block dark:hidden transition-transform duration-200 group-hover:scale-105"
-          />
-          <img
-            src="/logo-dark-styled.png"
-            alt="logo"
-            className="h-5 sm:h-7 inline-block hidden dark:block transition-transform duration-200 group-hover:scale-105"
-          />
+        <a href="/" className="flex items-center gap-2" aria-label="Pocketforge home">
+          {/* Brand mark: lightning glyph in a violet gradient chip */}
+          <span
+            className="flex items-center justify-center w-7 h-7 rounded-[9px] text-white transition-transform duration-200 group-hover:scale-105"
+            style={{
+              background: 'linear-gradient(135deg, var(--bolt-mobile-accent) 0%, #6234bb 100%)',
+              boxShadow: '0 2px 10px rgba(139, 92, 246, 0.35)',
+            }}
+          >
+            <span className="i-ph:lightning-fill text-base" />
+          </span>
+          {/* Wordmark */}
+          <span className="text-[17px] sm:text-lg font-semibold tracking-tight leading-none select-none">
+            <span className="text-[var(--bolt-mobile-text-primary)]">Pocket</span>
+            <span className="text-[var(--bolt-mobile-accent-text)]">forge</span>
+          </span>
         </a>
       </div>
       {chat.started && (

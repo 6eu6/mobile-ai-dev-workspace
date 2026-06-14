@@ -47,7 +47,7 @@ export const EmptyWorkspaceState = memo(
             'animate-float-subtle',
           )}
         >
-          <div className="i-bolt:logo text-4xl text-white" />
+          <div className="i-ph:lightning-fill text-4xl text-white" />
         </div>
 
         {/* Heading — gradient text */}

@@ -369,7 +369,7 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                         animation: 'gradient-shift 6s ease infinite',
                       }}
                     >
-                      Where ideas begin
+                      Build from your pocket
                     </span>
                   </h1>
                 </div>
@@ -380,7 +380,7 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                     opacity: 0,
                   }}
                 >
-                  Describe what you want to build. AI generates the code.
+                  Describe it. Pocketforge generates, previews, and exports — right from your phone.
                 </p>
               </div>
             )}
