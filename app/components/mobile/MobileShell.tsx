@@ -6,6 +6,7 @@ import { mobileActiveTab } from '~/lib/stores/mobile';
 import { workbenchStore } from '~/lib/stores/workbench';
 import { chatStore } from '~/lib/stores/chat';
 import { ControlPanel } from '~/components/@settings/core/ControlPanel';
+import { RemotePreviewTrigger } from '~/components/sandbox/RemotePreviewTrigger';
 
 export const MobileShell = memo(() => {
   const activeTab = useStore(mobileActiveTab);
@@ -70,6 +71,7 @@ export const MobileShell = memo(() => {
 
   return (
     <>
+      <RemotePreviewTrigger />
       <MobileActionDock />
 
       {/* Bottom spacer: pushes content above the dock */}
