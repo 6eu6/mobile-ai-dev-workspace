@@ -130,13 +130,17 @@ export async function ensureRemotePreview(): Promise<void> {
       started = true;
 
       /*
-       * Wait until the cloud dev server actually responds before showing it, so
-       * the preview iframe doesn't load a 502 while npm install is still running.
+       * Wait until the cloud dev server actually responds before exposing it.
        */
       await waitForServerReady(sandboxId, DEV_PORT);
 
-      // Inject into the normal previews store so the Preview UI renders it.
-      workbenchStore.previews.set([{ port: DEV_PORT, ready: true, baseUrl: url }]);
+      /*
+       * NOTE: we do NOT embed the E2B URL in the workbench iframe. Our page is
+       * cross-origin-isolated (COEP: require-corp, needed for WebContainer), and
+       * the E2B preview host does not send a Cross-Origin-Resource-Policy header,
+       * so the browser blocks it inside an iframe (blank preview). Instead we
+       * expose the URL and open it as a top-level tab (no COEP restriction).
+       */
       remotePreviewStatus.set({ state: 'ready', url });
     }
   } catch (error) {
