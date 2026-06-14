@@ -64,33 +64,33 @@ export function ImportButtons(importChat: ((description: string, messages: Messa
         variant="default"
         size="sm"
         className={classNames(
-          'gap-2 bg-bolt-elements-bg-depth-2',
-          'text-bolt-elements-textSecondary',
-          'hover:bg-bolt-elements-button-primary-background hover:text-bolt-elements-button-primary-text',
-          'border border-bolt-elements-borderColor',
+          'gap-2',
+          'bg-[rgba(139,92,246,0.06)] border border-[rgba(139,92,246,0.12)]',
+          'text-purple-200/80 hover:text-purple-100',
+          'hover:bg-[rgba(139,92,246,0.12)] hover:border-[rgba(139,92,246,0.2)]',
           'h-9 px-3 py-1.5 sm:h-10 sm:px-4 sm:py-2 sm:min-w-[120px] justify-center',
           'transition-all duration-200 ease-out',
           'hover:shadow-[0_0_16px_var(--bolt-glow-color)]',
-          'hover:border-bolt-elements-borderColorActive',
           'text-xs sm:text-sm',
+          'rounded-lg',
         )}
       >
-        <span className="i-ph:upload-simple text-base sm:text-lg" />
+        <span className="i-ph:file-import text-base sm:text-lg" />
         <span className="hidden sm:inline">Import Chat</span>
         <span className="sm:hidden">Chat</span>
       </Button>
       <ImportFolderButton
         importChat={importChat}
         className={classNames(
-          'gap-2 bg-bolt-elements-bg-depth-2',
-          'text-bolt-elements-textSecondary',
-          'hover:bg-bolt-elements-button-primary-background hover:text-bolt-elements-button-primary-text',
-          'border border-bolt-elements-borderColor',
+          'gap-2',
+          'bg-[rgba(139,92,246,0.06)] border border-[rgba(139,92,246,0.12)]',
+          'text-purple-200/80 hover:text-purple-100',
+          'hover:bg-[rgba(139,92,246,0.12)] hover:border-[rgba(139,92,246,0.2)]',
           'h-9 px-3 py-1.5 sm:h-10 sm:px-4 sm:py-2 sm:min-w-[120px] justify-center',
           'transition-all duration-200 ease-out',
           'hover:shadow-[0_0_16px_var(--bolt-glow-color)]',
-          'hover:border-bolt-elements-borderColorActive',
           'text-xs sm:text-sm',
+          'rounded-lg',
         )}
       />
     </>

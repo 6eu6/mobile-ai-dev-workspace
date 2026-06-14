@@ -1,29 +1,31 @@
 /**
- * Mobile-first styles for the bolt.diy mobile shell.
+ * Mobile Design System
  *
- * These styles only apply on viewports < 640px (the "sm" breakpoint).
- * They are designed to coexist with the desktop layout without breaking it.
+ * A cohesive mobile-first stylesheet for the bolt.diy AI workspace.
+ * All rules apply only on viewports < 640px (sm breakpoint).
  *
- * Key principles:
- * - All mobile overrides use @media (max-width: 639px) to avoid
- *   affecting desktop.
- * - No desktop selectors are modified.
- * - The bottom dock height is ~56px + safe-area-inset-bottom.
+ * Design principles:
+ * - Use design tokens from variables.scss
+ * - No !important unless absolutely required by third-party overrides
+ * - Consistent spacing, radius, and color usage
+ * - Proper safe-area handling
+ * - No horizontal overflow
  */
 
 @media (max-width: 639px) {
-  /* ===== A) Lock horizontal movement ===== */
+  /* ============================================
+   * A) LAYOUT FOUNDATION
+   * ============================================ */
 
   html,
   body,
   #root,
   [id='root'] {
-    max-width: 100vw !important;
-    overflow-x: hidden !important;
-    overscroll-behavior-x: none !important;
+    max-width: 100vw;
+    overflow-x: hidden;
+    overscroll-behavior-x: none;
   }
 
-  /* Prevent rubber-band horizontal scroll on iOS */
   body {
     touch-action: pan-y;
   }
@@ -33,214 +35,197 @@
   .z-workbench,
   .z-workbench > div,
   .z-workbench > div > div {
-    max-width: 100vw !important;
-    min-width: 0 !important;
+    max-width: 100vw;
+    min-width: 0;
   }
 
-  /* Any flex child that might overflow must shrink */
   .flex {
     min-width: 0;
   }
 
-  /* ===== Chat layout overrides ===== */
+  /* ============================================
+   * B) HEADER
+   * ============================================ */
 
-  /* Chat area: remove the min-width constraint that forces side-by-side layout */
-  .Chat {
-    --chat-min-width: 0px !important;
-    min-width: 0 !important;
-    --chat-max-width: 100% !important;
-    width: 100% !important;
-  }
-
-  /* Workbench: on mobile, override positioning to be full-screen
-     and account for the bottom dock height + action bar */
-  .z-workbench > div > div {
-    bottom: calc(56px + env(safe-area-inset-bottom, 0px)) !important;
-    width: 100vw !important;
-    max-width: 100vw !important;
-    left: 0 !important;
-    right: 0 !important;
-  }
-
-  /* Hide the sidebar menu on mobile — users navigate via bottom tabs instead */
-  .z-sidebar {
-    display: none !important;
-  }
-
-  /* Hide the sidebar toggle button in the header on mobile */
-  [class*='i-ph:sidebar-simple'],
-  [class*='i-ph:sidebar-simple-fill'] {
-    display: none !important;
-  }
-
-  /* Make the header more compact on mobile */
   :root {
-    --header-height: 48px;
+    --header-height: var(--bolt-mobile-header-height);
   }
 
-  /* Settings dialog: override hardcoded sizes to be full-screen on mobile */
-  [role='dialog'] > div {
-    width: 100vw !important;
-    max-width: 100vw !important;
-    height: 100dvh !important;
-    max-height: 100dvh !important;
-    border-radius: 0 !important;
+  /* ============================================
+   * C) CHAT LAYOUT
+   * ============================================ */
+
+  .Chat {
+    --chat-min-width: 0px;
+    min-width: 0;
+    --chat-max-width: 100%;
+    width: 100%;
   }
 
-  /* Make the intro section more compact on mobile */
-  #intro {
-    margin-top: 6vh !important;
+  /* Bottom padding clears the dock */
+  .Chat > .flex > .flex {
+    padding-bottom: calc(var(--bolt-mobile-dock-height) + env(safe-area-inset-bottom, 0px) + 8px);
   }
 
-  /* ===== D) Fix low-contrast buttons ===== */
-
-  /* Example prompt chips: ensure readable on dark bg */
-  #examples button {
-    padding: 6px 10px !important;
-    font-size: 11px !important;
-    border-color: color-mix(in srgb, var(--bolt-elements-borderColor) 60%, var(--bolt-gradient-start) 40%) !important;
-    color: var(--bolt-elements-textSecondary) !important;
-    background: color-mix(in srgb, var(--bolt-elements-bg-depth-2) 80%, var(--bolt-glow-color) 20%) !important;
-  }
-
-  #examples button:hover {
-    color: var(--bolt-elements-button-primary-text) !important;
-    border-color: var(--bolt-elements-borderColorActive) !important;
-    background: var(--bolt-elements-button-primary-background) !important;
-  }
-
-  /* Import buttons: improve contrast */
-  .flex.justify-center.gap-2 {
-    flex-wrap: wrap;
-    gap: 6px !important;
-  }
-
-  /* Make import/git buttons have better contrast on dark bg */
-  .flex.justify-center.gap-2 button,
-  .flex.justify-center.gap-2 a {
-    border-color: color-mix(in srgb, var(--bolt-elements-borderColor) 70%, var(--bolt-gradient-start) 30%) !important;
-  }
-
-  /* Starter templates: tighter spacing + better visibility */
-  .flex.justify-center .flex.flex-wrap {
-    gap: 10px !important;
-  }
-
-  /* Starter template icons: ensure visible on dark */
-  .flex.justify-center .flex.flex-wrap .group > div > div {
-    opacity: 0.9 !important;
-  }
-
-  /* ===== Chat input & messages ===== */
-
-  /* Chat area padding on mobile */
   .StickToBottom {
-    padding-left: 2px !important;
-    padding-right: 2px !important;
+    padding-left: 2px;
+    padding-right: 2px;
+    padding-bottom: 0;
+  }
+
+  .max-w-chat {
+    max-width: 100%;
+  }
+
+  .max-w-chat.pb-4 {
+    padding-bottom: 8px;
   }
 
   /* Prevent iOS zoom on textarea focus */
   textarea {
-    font-size: 16px !important;
+    font-size: 16px;
   }
 
-  /* Smaller keyboard shortcut hints */
-  .kdb {
-    font-size: 10px !important;
-  }
-
-  /* Model selector dropdown: limit height on mobile */
+  /* Model selector dropdown: limit height */
   [role='listbox'] {
-    max-height: 50vh !important;
+    max-height: 50vh;
   }
 
-  /* ChatBox: reduce inner padding on mobile */
-  .max-w-chat {
-    max-width: 100% !important;
+  .z-prompt {
+    margin-bottom: 0;
   }
 
-  /* Messages: better mobile spacing */
-  .max-w-chat.pb-4 {
-    padding-bottom: 8px !important;
+  /* ============================================
+   * D) WORKBENCH / CODE SURFACE
+   * ============================================ */
+
+  .z-workbench > div > div {
+    bottom: calc(var(--bolt-mobile-dock-height) + env(safe-area-inset-bottom, 0px));
+    width: 100vw;
+    max-width: 100vw;
+    left: 0;
+    right: 0;
   }
 
-  /* ScrollToBottom button: make it more compact on mobile */
-  .glass-surface {
-    font-size: 12px !important;
-    padding: 6px 12px !important;
+  /* Hide desktop sidebar on mobile */
+  .z-sidebar {
+    display: none;
   }
 
-  /* ===== E) Workbench toolbar mobile fixes ===== */
-
-  /* Fix the workbench close button on mobile */
-  [aria-label='Close Panel'] {
-    min-width: 36px !important;
-    min-height: 36px !important;
+  [class*='i-ph:sidebar-simple'],
+  [class*='i-ph:sidebar-simple-fill'] {
+    display: none;
   }
 
-  /* Workbench toolbar: make it scrollable on mobile instead of overflowing */
+  /* Workbench toolbar: scrollable, compact */
   [data-workbench-toolbar] {
-    overflow-x: auto !important;
-    overflow-y: hidden !important;
+    overflow-x: auto;
+    overflow-y: hidden;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
-    max-width: 100% !important;
+    max-width: 100%;
+    gap: var(--bolt-space-1);
+    padding: var(--bolt-space-1) var(--bolt-space-2);
 
     &::-webkit-scrollbar {
       display: none;
     }
   }
 
-  /* Better spacing for the workbench toolbar on mobile */
-  [data-workbench-toolbar] > * {
-    gap: 2px !important;
-  }
-
-  /* Workbench toolbar buttons: smaller on mobile */
   [data-workbench-toolbar] button {
-    padding: 4px 8px !important;
-    font-size: 11px !important;
+    padding: 4px 8px;
+    font-size: 11px;
     white-space: nowrap;
     flex-shrink: 0;
+    border-radius: var(--bolt-radius-sm);
   }
 
-  /* Slider component in workbench: compact on mobile */
   [data-workbench-toolbar] [role='tablist'],
   [data-workbench-toolbar] [role='tab'] {
-    font-size: 11px !important;
-    padding: 4px 8px !important;
+    font-size: 11px;
+    padding: 4px 8px;
   }
 
-  /* File tree: make items more tappable on mobile */
+  /* File tree: tappable items */
   .z-workbench [role='treeitem'] {
-    min-height: 36px !important;
-    padding: 4px 8px !important;
+    min-height: 36px;
+    padding: 4px 8px;
   }
 
-  /* Ensure code editor doesn't overflow on mobile */
   .cm-editor {
-    max-width: 100% !important;
+    max-width: 100%;
   }
 
-  /* Preview iframe: ensure it fills available space */
   .z-workbench iframe {
-    width: 100% !important;
+    width: 100%;
   }
 
-  /* ===== C) Bottom spacing for dock ===== */
+  /* ============================================
+   * E) SETTINGS DIALOG
+   * ============================================ */
 
-  /* Add bottom padding to chat content so it clears the dock */
-  .Chat > .flex > .flex {
-    padding-bottom: calc(56px + env(safe-area-inset-bottom, 12px)) !important;
+  [role='dialog'] > div {
+    width: 100vw;
+    max-width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
   }
 
-  /* Ensure StickToBottom content has bottom padding for dock */
-  .StickToBottom {
-    padding-bottom: 0 !important;
+  /* ============================================
+   * F) INTRO / EMPTY STATE
+   * ============================================ */
+
+  #intro {
+    margin-top: 6vh;
   }
 
-  /* ChatBox wrapper: ensure it sits above the dock */
-  .z-prompt {
-    margin-bottom: 0 !important;
+  /* ============================================
+   * G) IMPORT / GIT BUTTONS
+   * ============================================ */
+
+  .flex.justify-center.gap-2 {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .flex.justify-center .flex.flex-wrap {
+    gap: 10px;
+  }
+
+  .flex.justify-center .flex.flex-wrap .group > div > div {
+    opacity: 0.9;
+  }
+
+  /* ============================================
+   * H) SCROLL TO BOTTOM
+   * ============================================ */
+
+  .glass-surface {
+    font-size: 12px;
+    padding: 6px 12px;
+  }
+
+  /* ============================================
+   * I) KEYBOARD SHORTCUT HINTS
+   * ============================================ */
+
+  .kdb {
+    font-size: 10px;
+  }
+
+  /* ============================================
+   * J) MOBILE SHELL — SPACER & FLOATING BAR
+   * ============================================ */
+
+  /* Spacer that pushes content above the dock */
+  .mobile-dock-spacer {
+    height: var(--bolt-mobile-dock-height, 56px);
+    margin-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  /* Floating workbench action bar — sits above the dock */
+  .mobile-workbench-float-bar {
+    bottom: calc(var(--bolt-mobile-dock-height, 56px) + env(safe-area-inset-bottom, 0px) + 8px);
   }
 }

@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from '@nanostores/react';
 import { IconButton } from '~/components/ui/IconButton';
+import { classNames } from '~/utils/classNames';
 import { workbenchStore } from '~/lib/stores/workbench';
 import { PortDropdown } from './PortDropdown';
 import { ScreenshotSelector } from './ScreenshotSelector';
@@ -1011,49 +1012,42 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
               />
             </>
           ) : (
-            <div className="flex flex-col w-full h-full justify-center items-center bg-bolt-elements-background-depth-1 px-6">
+            <div className="flex flex-col w-full h-full justify-center items-center bg-bolt-elements-bg-depth-1 px-6">
               <div
-                className="flex flex-col items-center gap-4 max-w-xs text-center"
+                className="flex flex-col items-center gap-5 max-w-xs text-center"
                 style={{ animation: 'fade-in-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards' }}
               >
-                <div
-                  className="w-14 h-14 rounded-2xl flex items-center justify-center"
-                  style={{
-                    background: 'linear-gradient(135deg, rgba(139,92,246,0.1), rgba(168,85,247,0.06))',
-                    border: '1px solid rgba(139,92,246,0.15)',
-                  }}
-                >
-                  <div className="i-ph:eye-slash text-2xl text-purple-400/60" />
+                <div className="w-16 h-16 rounded-2xl flex items-center justify-center bg-[rgba(139,92,246,0.06)] border border-[rgba(139,92,246,0.12)]">
+                  <div className="i-ph:browser text-2xl text-purple-400/50" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-semibold text-bolt-elements-textPrimary mb-1">
-                    No preview available yet
-                  </h3>
+                  <h3 className="text-sm font-semibold text-bolt-elements-textPrimary mb-1.5">No preview available</h3>
                   <p className="text-xs text-bolt-elements-textTertiary leading-relaxed">
-                    The project may need a runtime or generated files before preview can start.
+                    Start a conversation or wait for the runtime to initialize. Preview will appear here once the app is
+                    running.
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 mt-1">
                   <button
                     onClick={() => workbenchStore.currentView.set('code')}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 active:scale-95"
-                    style={{
-                      background: 'rgba(139,92,246,0.1)',
-                      color: '#c084fc',
-                      border: '1px solid rgba(139,92,246,0.2)',
-                    }}
+                    className={classNames(
+                      'flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium',
+                      'bg-[rgba(139,92,246,0.08)] text-purple-300 border border-[rgba(139,92,246,0.15)]',
+                      'hover:bg-[rgba(139,92,246,0.14)] hover:border-[rgba(139,92,246,0.25)]',
+                      'active:scale-[0.97] transition-all duration-200',
+                    )}
                   >
                     <div className="i-ph:folder-open text-sm" />
-                    Files
+                    View Files
                   </button>
                   <button
                     onClick={() => workbenchStore.downloadZip()}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 active:scale-95"
-                    style={{
-                      background: 'rgba(255,255,255,0.04)',
-                      color: '#a0a0b0',
-                      border: '1px solid rgba(255,255,255,0.08)',
-                    }}
+                    className={classNames(
+                      'flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium',
+                      'bg-[rgba(255,255,255,0.03)] text-gray-400 border border-[rgba(255,255,255,0.06)]',
+                      'hover:bg-[rgba(255,255,255,0.06)] hover:text-gray-300',
+                      'active:scale-[0.97] transition-all duration-200',
+                    )}
                   >
                     <div className="i-ph:download-simple text-sm" />
                     Export ZIP

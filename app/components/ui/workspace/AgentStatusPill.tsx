@@ -30,15 +30,13 @@ const STATUS_CONFIG: Record<AgentStatus, { icon: string; label: string; colorCla
   thinking: {
     icon: 'i-ph:brain',
     label: 'Thinking',
-    colorClass:
-      'bg-accent-500/10 dark:bg-purple-500/15 text-accent-600 dark:text-purple-300 border-accent-300/40 dark:border-purple-500/30',
+    colorClass: 'bg-[rgba(139,92,246,0.1)] text-purple-400 border-[rgba(139,92,246,0.2)]',
     animate: true,
   },
   generating: {
     icon: 'i-ph:lightning',
     label: 'Generating',
-    colorClass:
-      'bg-accent-500/15 dark:bg-purple-500/20 text-accent-600 dark:text-purple-300 border-accent-300/50 dark:border-purple-500/35',
+    colorClass: 'bg-[rgba(139,92,246,0.14)] text-purple-400 border-[rgba(139,92,246,0.25)]',
     animate: true,
   },
   saving: {
@@ -51,27 +49,23 @@ const STATUS_CONFIG: Record<AgentStatus, { icon: string; label: string; colorCla
   restored: {
     icon: 'i-ph:arrow-counter-clockwise',
     label: 'Restored',
-    colorClass:
-      'bg-green-500/10 dark:bg-green-500/15 text-green-600 dark:text-green-300 border-green-300/40 dark:border-green-500/30',
+    colorClass: 'bg-[rgba(74,222,128,0.08)] text-green-400 border-[rgba(74,222,128,0.2)]',
   },
   stuck: {
     icon: 'i-ph:warning',
     label: 'Stuck',
-    colorClass:
-      'bg-amber-500/10 dark:bg-amber-500/15 text-amber-600 dark:text-amber-300 border-amber-300/40 dark:border-amber-500/30',
+    colorClass: 'bg-[rgba(251,191,36,0.08)] text-amber-400 border-[rgba(251,191,36,0.2)]',
     animate: true,
   },
   error: {
     icon: 'i-ph:x-circle',
     label: 'Error',
-    colorClass:
-      'bg-red-500/10 dark:bg-red-500/15 text-red-600 dark:text-red-300 border-red-300/40 dark:border-red-500/30',
+    colorClass: 'bg-[rgba(248,113,113,0.08)] text-red-400 border-[rgba(248,113,113,0.2)]',
   },
   done: {
     icon: 'i-ph:check-circle',
     label: 'Done',
-    colorClass:
-      'bg-green-500/10 dark:bg-green-500/15 text-green-600 dark:text-green-300 border-green-300/40 dark:border-green-500/30',
+    colorClass: 'bg-[rgba(74,222,128,0.08)] text-green-400 border-[rgba(74,222,128,0.2)]',
   },
 };
 

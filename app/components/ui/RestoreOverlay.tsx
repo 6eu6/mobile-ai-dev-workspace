@@ -41,7 +41,7 @@ export function RestoreOverlay() {
     <AnimatePresence>
       {restoring && (
         <motion.div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-bolt-elements-bg-depth-1/85 backdrop-blur-md"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(8,8,16,0.92)] backdrop-blur-xl"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -56,12 +56,9 @@ export function RestoreOverlay() {
           >
             {/* Main spinner */}
             <div className="relative">
-              <div className="w-16 h-16 rounded-full border-4 border-accent-200/40 dark:border-purple-800/40 border-t-accent-500 dark:border-t-purple-400 animate-spin" />
+              <div className="w-16 h-16 rounded-full border-4 border-[rgba(139,92,246,0.2)] border-t-purple-400 animate-spin" />
               <div
-                className={classNames(
-                  'absolute inset-0 flex items-center justify-center text-2xl',
-                  'text-accent-600 dark:text-purple-400',
-                )}
+                className={classNames('absolute inset-0 flex items-center justify-center text-2xl', 'text-purple-400')}
               >
                 <div className={RESTORE_ICONS[status.step]} />
               </div>
@@ -86,16 +83,15 @@ export function RestoreOverlay() {
                       className={classNames(
                         'w-2.5 h-2.5 rounded-full transition-all duration-300',
                         isCompleted && 'bg-green-500 dark:bg-green-400',
-                        isCurrent &&
-                          'bg-accent-500 dark:bg-purple-400 scale-125 ring-2 ring-accent-300/30 dark:ring-purple-400/20',
-                        isPending && 'bg-bolt-elements-bg-depth-3',
+                        isCurrent && 'bg-purple-400 scale-125 ring-2 ring-purple-400/30',
+                        isPending && 'bg-[rgba(139,92,246,0.15)]',
                       )}
                     />
                     {idx < STEP_ORDER.length - 1 && (
                       <div
                         className={classNames(
                           'w-6 h-0.5 transition-colors duration-300',
-                          isCompleted ? 'bg-green-500/60 dark:bg-green-400/60' : 'bg-bolt-elements-bg-depth-3',
+                          isCompleted ? 'bg-green-500/60 dark:bg-green-400/60' : 'bg-[rgba(139,92,246,0.1)]',
                         )}
                       />
                     )}

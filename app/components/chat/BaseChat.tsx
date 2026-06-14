@@ -357,7 +357,7 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                     animation: 'fade-in-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards',
                   }}
                 >
-                  <h1 className="text-2xl sm:text-4xl lg:text-6xl font-bold mb-2 sm:mb-3 lg:mb-4 tracking-tight">
+                  <h1 className="text-xl sm:text-4xl lg:text-6xl font-bold mb-3 sm:mb-3 lg:mb-4 tracking-tight">
                     <span
                       style={{
                         background:
@@ -374,13 +374,13 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                   </h1>
                 </div>
                 <p
-                  className="text-sm sm:text-base lg:text-lg mb-6 sm:mb-8 text-bolt-elements-textSecondary max-w-md mx-auto leading-relaxed"
+                  className="text-[13px] sm:text-base lg:text-lg mb-6 sm:mb-8 text-bolt-elements-textSecondary max-w-md mx-auto leading-relaxed"
                   style={{
                     animation: 'fade-in-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.2s forwards',
                     opacity: 0,
                   }}
                 >
-                  Bring ideas to life in seconds or get help on existing projects.
+                  Describe what you want to build. AI generates the code.
                 </p>
               </div>
             )}
@@ -498,7 +498,7 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
             <div className="flex flex-col justify-center">
               {!chatStarted && (
                 <div
-                  className="flex justify-center gap-2 flex-wrap px-3 sm:px-4"
+                  className="flex justify-center gap-2 flex-wrap px-4 sm:px-4 mt-2"
                   style={{ animation: 'fade-in-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.3s forwards', opacity: 0 }}
                 >
                   <GitCloneButton importChat={importChat} />

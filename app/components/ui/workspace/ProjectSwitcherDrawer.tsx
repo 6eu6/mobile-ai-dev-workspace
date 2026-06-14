@@ -163,21 +163,21 @@ export const ProjectSwitcherDrawer = memo(({ open, onClose }: ProjectSwitcherDra
     switch (status) {
       case 'generating':
         return (
-          <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-accent-500/10 dark:bg-purple-500/15 text-accent-600 dark:text-purple-300 border border-accent-300/20 dark:border-purple-500/20">
+          <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-accent-500/10 dark:bg-purple-500/15 text-accent-600 dark:text-purple-300 border border-[rgba(139,92,246,0.2)]">
             <span className="w-1 h-1 rounded-full bg-accent-500 dark:bg-purple-400 animate-pulse" />
             Generating
           </span>
         );
       case 'interrupted':
         return (
-          <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 dark:bg-amber-500/15 text-amber-600 dark:text-amber-300 border border-amber-300/20 dark:border-amber-500/20">
+          <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 dark:bg-amber-500/15 text-amber-600 dark:text-amber-300 border border-[rgba(251,191,36,0.2)]">
             <span className="w-1 h-1 rounded-full bg-amber-500 dark:bg-amber-400" />
             Interrupted
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/10 dark:bg-green-500/15 text-green-600 dark:text-green-300 border border-green-300/20 dark:border-green-500/20">
+          <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/10 dark:bg-green-500/15 text-green-600 dark:text-green-300 border border-[rgba(74,222,128,0.2)]">
             <span className="w-1 h-1 rounded-full bg-green-500 dark:bg-green-400" />
             Saved
           </span>
@@ -204,10 +204,10 @@ export const ProjectSwitcherDrawer = memo(({ open, onClose }: ProjectSwitcherDra
           <motion.div
             className={classNames(
               'fixed inset-x-0 bottom-0 z-[999] flex flex-col',
-              'bg-bolt-elements-bg-depth-1',
+              'bg-[rgba(10,10,18,0.98)]',
               'border-t border-bolt-elements-borderColor/60',
               'rounded-t-2xl',
-              'shadow-[0_-8px_40px_rgba(0,0,0,0.3)]',
+              'shadow-[0_-8px_40px_rgba(0,0,0,0.5)]',
             )}
             style={{ maxHeight: '85dvh', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
             variants={DRAWER_VARIANTS}
@@ -216,9 +216,19 @@ export const ProjectSwitcherDrawer = memo(({ open, onClose }: ProjectSwitcherDra
             exit="exit"
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
           >
+            {/* Top border accent */}
+            <div
+              className="absolute top-0 left-0 right-0 h-px pointer-events-none"
+              style={{
+                background:
+                  'linear-gradient(90deg, transparent 5%, var(--bolt-gradient-start) 30%, var(--bolt-gradient-mid) 50%, var(--bolt-gradient-end) 70%, transparent 95%)',
+                opacity: 0.35,
+              }}
+            />
+
             {/* Drag handle */}
             <div className="flex justify-center pt-2.5 pb-1">
-              <div className="w-8 h-1 rounded-full bg-bolt-elements-borderColor/60" />
+              <div className="w-8 h-1 rounded-full bg-[rgba(139,92,246,0.2)]" />
             </div>
 
             {/* Header */}
@@ -226,7 +236,7 @@ export const ProjectSwitcherDrawer = memo(({ open, onClose }: ProjectSwitcherDra
               <h2 className="text-base font-semibold text-bolt-elements-textPrimary">Projects</h2>
               <button
                 onClick={onClose}
-                className="p-1.5 rounded-lg hover:bg-bolt-elements-bg-depth-3/60 text-bolt-elements-textTertiary transition-colors active:scale-95"
+                className="p-1.5 rounded-lg hover:bg-[rgba(139,92,246,0.08)] hover:text-purple-300 text-bolt-elements-textTertiary transition-colors active:scale-95"
                 aria-label="Close"
               >
                 <div className="i-ph:x text-base" />
@@ -238,7 +248,7 @@ export const ProjectSwitcherDrawer = memo(({ open, onClose }: ProjectSwitcherDra
               <button
                 onClick={handleNewProject}
                 className={classNames(
-                  'w-full flex items-center justify-center gap-2 rounded-xl px-4 py-2.5',
+                  'w-full flex items-center justify-center gap-2 rounded-lg px-4 py-2.5',
                   'bg-gradient-to-r from-[var(--bolt-gradient-start)] to-[var(--bolt-gradient-mid)]',
                   'text-white font-medium text-sm',
                   'hover:shadow-[0_0_20px_var(--bolt-glow-color)]',
@@ -262,7 +272,7 @@ export const ProjectSwitcherDrawer = memo(({ open, onClose }: ProjectSwitcherDra
                 <div className="pb-4">
                   {binDates(projects).map(({ category, items }) => (
                     <div key={category}>
-                      <div className="px-5 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-bolt-elements-textTertiary sticky top-0 bg-bolt-elements-bg-depth-1/95 backdrop-blur-sm z-1">
+                      <div className="px-5 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-purple-300/30 sticky top-0 bg-[rgba(10,10,18,0.95)] backdrop-blur-sm z-1">
                         {category}
                       </div>
                       {(items as ProjectItem[]).map((item) => (
@@ -271,7 +281,7 @@ export const ProjectSwitcherDrawer = memo(({ open, onClose }: ProjectSwitcherDra
                           onClick={() => handleOpenProject(item)}
                           className={classNames(
                             'w-full text-left px-5 py-3 transition-colors group flex items-start gap-3',
-                            'hover:bg-bolt-elements-bg-depth-2/50 active:bg-bolt-elements-bg-depth-2/70',
+                            'hover:bg-[rgba(139,92,246,0.06)] active:bg-[rgba(139,92,246,0.1)]',
                           )}
                         >
                           {/* Project icon */}
@@ -297,7 +307,7 @@ export const ProjectSwitcherDrawer = memo(({ open, onClose }: ProjectSwitcherDra
                             onClick={(e) => handleDeleteProject(e, item)}
                             className={classNames(
                               'opacity-0 group-hover:opacity-100 p-1.5 rounded-lg shrink-0',
-                              'hover:bg-red-500/10 text-bolt-elements-textTertiary hover:text-red-500 dark:hover:text-red-400',
+                              'hover:bg-[rgba(248,113,113,0.1)] text-bolt-elements-textTertiary hover:text-red-400',
                               'transition-all active:scale-95',
                             )}
                             title="Delete project"

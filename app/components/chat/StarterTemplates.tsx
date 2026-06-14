@@ -26,7 +26,7 @@ const FrameworkLink: React.FC<FrameworkLinkProps> = ({ template }) => (
       />
       <span
         className="
-        text-[9px] sm:text-[10px] font-medium
+        text-[10px] sm:text-[10px] font-medium
         text-bolt-elements-textSecondary
         opacity-80 sm:opacity-0 group-hover:opacity-100
         transition-all duration-200 ease-out
@@ -45,11 +45,11 @@ const StarterTemplates: React.FC = () => {
       className="flex flex-col items-center gap-2 sm:gap-3"
       style={{ animation: 'fade-in-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.5s forwards', opacity: 0 }}
     >
-      <span className="text-[10px] sm:text-xs font-medium text-bolt-elements-textTertiary uppercase tracking-wider">
+      <span className="text-[10px] sm:text-xs font-medium text-purple-300/40 uppercase tracking-wider">
         or start a blank app with your favorite stack
       </span>
       <div className="flex justify-center">
-        <div className="flex flex-wrap justify-center items-start gap-2 sm:gap-4 max-w-xs sm:max-w-md">
+        <div className="flex flex-wrap justify-center items-start gap-3 sm:gap-4 max-w-xs sm:max-w-md">
           {STARTER_TEMPLATES.map((template) => (
             <FrameworkLink key={template.name} template={template} />
           ))}

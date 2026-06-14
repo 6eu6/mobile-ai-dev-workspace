@@ -225,6 +225,12 @@
   --bolt-terminal-brightWhite: #f1f1f0;
   --modern-scrollbar-thumb-background: rgba(100, 100, 100, 0.3);
   --modern-scrollbar-thumb-backgroundHover: rgba(10, 10, 10, 0.8);
+
+  /* Mobile surface: slightly different in dark mode for depth */
+  --bolt-mobile-surface-bg: rgba(10, 10, 18, 0.94);
+  --bolt-mobile-surface-border: rgba(139, 92, 246, 0.14);
+  --bolt-mobile-surface-glow: rgba(139, 92, 246, 0.08);
+  --bolt-mobile-accent-text: #c084fc;
 }
 
 /*
@@ -234,6 +240,7 @@
  */
 :root {
   --header-height: 54px;
+  --bolt-mobile-dock-height: 56px;
   --chat-max-width: 42rem;
   --chat-min-width: 533px;
   --workbench-width: min(calc(100% - var(--chat-min-width)), 2536px);
@@ -265,4 +272,49 @@
   --bolt-elements-terminal-color-brightMagenta: var(--bolt-terminal-brightMagenta);
   --bolt-elements-terminal-color-brightCyan: var(--bolt-terminal-brightCyan);
   --bolt-elements-terminal-color-brightWhite: var(--bolt-terminal-brightWhite);
+
+  /* ===== Mobile Design System ===== */
+
+  /* Spacing Scale */
+  --bolt-space-1: 4px;
+  --bolt-space-2: 8px;
+  --bolt-space-3: 12px;
+  --bolt-space-4: 16px;
+  --bolt-space-5: 20px;
+  --bolt-space-6: 24px;
+  --bolt-space-8: 32px;
+  --bolt-space-10: 40px;
+  --bolt-space-12: 48px;
+
+  /* Radius Scale */
+  --bolt-radius-sm: 6px;
+  --bolt-radius-md: 10px;
+  --bolt-radius-lg: 14px;
+  --bolt-radius-xl: 18px;
+  --bolt-radius-pill: 9999px;
+
+  /* Mobile Surface Tokens */
+  --bolt-mobile-dock-height: 56px;
+  --bolt-mobile-header-height: 48px;
+  --bolt-mobile-surface-bg: rgba(10, 10, 18, 0.92);
+  --bolt-mobile-surface-border: rgba(139, 92, 246, 0.12);
+  --bolt-mobile-surface-glow: rgba(139, 92, 246, 0.06);
+
+  /* Mobile Accent System */
+  --bolt-mobile-accent: rgba(139, 92, 246, 1);
+  --bolt-mobile-accent-muted: rgba(139, 92, 246, 0.15);
+  --bolt-mobile-accent-subtle: rgba(139, 92, 246, 0.08);
+  --bolt-mobile-accent-text: #c4b5fd;
+
+  /* Mobile Text Hierarchy */
+  --bolt-mobile-text-primary: #f0f0f5;
+  --bolt-mobile-text-secondary: #8b8b9e;
+  --bolt-mobile-text-tertiary: #5a5a6e;
+  --bolt-mobile-text-accent: #c084fc;
+
+  /* Mobile Status Colors */
+  --bolt-mobile-success: #4ade80;
+  --bolt-mobile-warning: #fbbf24;
+  --bolt-mobile-error: #f87171;
+  --bolt-mobile-info: #60a5fa;
 }

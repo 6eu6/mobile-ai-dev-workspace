@@ -263,7 +263,7 @@ export const ChatBox: React.FC<ChatBoxProps> = (props) => {
             />
           )}
         </ClientOnly>
-        <div className="flex items-center gap-0.5 sm:gap-1 p-2 sm:p-3 pt-1 sm:pt-2 flex-wrap">
+        <div className="flex items-center gap-1 sm:gap-1 p-2 sm:p-3 pt-1 sm:pt-2 flex-wrap">
           {/* Primary actions — always visible */}
           <IconButton title="Upload file" className="transition-all" onClick={() => props.handleFileUpload()}>
             <div className="i-ph:paperclip text-lg sm:text-xl"></div>
@@ -335,7 +335,9 @@ export const ChatBox: React.FC<ChatBoxProps> = (props) => {
           >
             <div className={`i-ph:caret-${props.isModelSettingsCollapsed ? 'right' : 'down'} text-base sm:text-lg`} />
             {props.isModelSettingsCollapsed ? (
-              <span className="text-[10px] sm:text-xs font-medium max-w-[80px] truncate">{props.model}</span>
+              <span className="text-[10px] sm:text-xs font-medium max-w-[60px] sm:max-w-[80px] truncate">
+                {props.model}
+              </span>
             ) : (
               <span />
             )}
@@ -348,7 +350,7 @@ export const ChatBox: React.FC<ChatBoxProps> = (props) => {
         </div>
 
         {/* Mobile-only secondary row */}
-        <div className="flex sm:hidden items-center gap-0.5 px-2 pb-2 pt-0 border-t border-bolt-elements-borderColor/50 mt-0.5">
+        <div className="flex sm:hidden items-center gap-0.5 px-2 pb-2 pt-0 border-t border-[rgba(139,92,246,0.08)] mt-0.5">
           <ColorSchemeDialog designScheme={props.designScheme} setDesignScheme={props.setDesignScheme} />
           <McpTools />
           <SupabaseConnection />

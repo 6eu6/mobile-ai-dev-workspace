@@ -395,10 +395,10 @@ export const Workbench = memo(
               <div className="h-full flex flex-col bg-bolt-elements-background-depth-2 border border-bolt-elements-borderColor shadow-lg shadow-black/5 dark:shadow-black/20 rounded-xl overflow-hidden">
                 <div
                   data-workbench-toolbar
-                  className="flex items-center px-3 py-2 border-b border-bolt-elements-borderColor gap-1.5 bg-bolt-elements-bg-depth-1/50"
+                  className="flex items-center px-3 py-2 border-b border-[rgba(139,92,246,0.08)] gap-1.5 bg-[rgba(8,8,16,0.6)]"
                 >
                   <button
-                    className={`${showChat ? 'i-ph:sidebar-simple-fill' : 'i-ph:sidebar-simple'} text-lg text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary mr-1 transition-colors duration-200`}
+                    className={`${showChat ? 'i-ph:sidebar-simple-fill' : 'i-ph:sidebar-simple'} text-base text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary mr-1 shrink-0 transition-colors duration-200`}
                     disabled={!canHideChat || isSmallViewport}
                     onClick={() => {
                       if (canHideChat) {
@@ -418,9 +418,10 @@ export const Workbench = memo(
                         <DropdownMenu.Root>
                           <DropdownMenu.Trigger
                             disabled={isSyncing || streaming}
-                            className="rounded-md items-center justify-center [&:is(:disabled,.disabled)]:cursor-not-allowed [&:is(:disabled,.disabled)]:opacity-60 px-3 py-1.5 text-xs bg-accent-500 text-white hover:text-bolt-elements-item-contentAccent [&:not(:disabled,.disabled)]:hover:bg-bolt-elements-button-primary-backgroundHover outline-accent-500 flex gap-1.7"
+                            className="rounded-md items-center justify-center [&:is(:disabled,.disabled)]:cursor-not-allowed [&:is(:disabled,.disabled)]:opacity-60 px-2 py-1 sm:px-3 sm:py-1.5 text-xs bg-accent-500 text-white hover:text-bolt-elements-item-contentAccent [&:not(:disabled,.disabled)]:hover:bg-bolt-elements-button-primary-backgroundHover outline-accent-500 flex gap-1.7"
                           >
-                            {isSyncing ? 'Syncing...' : 'Sync'}
+                            <div className="i-ph:cloud-arrow-down sm:hidden" />
+                            <span className="hidden sm:inline">{isSyncing ? 'Syncing...' : 'Sync'}</span>
                             <span className={classNames('i-ph:caret-down transition-transform')} />
                           </DropdownMenu.Trigger>
                           <DropdownMenu.Content
@@ -461,10 +462,10 @@ export const Workbench = memo(
                           onClick={() => {
                             workbenchStore.toggleTerminal(!workbenchStore.showTerminal.get());
                           }}
-                          className="rounded-md items-center justify-center [&:is(:disabled,.disabled)]:cursor-not-allowed [&:is(:disabled,.disabled)]:opacity-60 px-3 py-1.5 text-xs bg-accent-500 text-white hover:text-bolt-elements-item-contentAccent [&:not(:disabled,.disabled)]:hover:bg-bolt-elements-button-primary-backgroundHover outline-accent-500 flex gap-1.7"
+                          className="rounded-md items-center justify-center [&:is(:disabled,.disabled)]:cursor-not-allowed [&:is(:disabled,.disabled)]:opacity-60 px-2 py-1 sm:px-3 sm:py-1.5 text-xs bg-accent-500 text-white hover:text-bolt-elements-item-contentAccent [&:not(:disabled,.disabled)]:hover:bg-bolt-elements-button-primary-backgroundHover outline-accent-500 flex gap-1.7"
                         >
-                          <div className="i-ph:terminal" />
-                          Toggle Terminal
+                          <div className="i-ph:terminal-window" />
+                          <span className="hidden sm:inline">Toggle Terminal</span>
                         </button>
                       </div>
                     </div>
@@ -475,7 +476,7 @@ export const Workbench = memo(
                   )}
                   <IconButton
                     icon="i-ph:x-circle"
-                    className="-mr-1 text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary transition-colors duration-200"
+                    className="-mr-1 shrink-0 text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary transition-colors duration-200"
                     size="xl"
                     onClick={() => {
                       workbenchStore.showWorkbench.set(false);

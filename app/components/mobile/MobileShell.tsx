@@ -6,13 +6,7 @@ import { mobileActiveTab } from '~/lib/stores/mobile';
 import { workbenchStore } from '~/lib/stores/workbench';
 import { chatStore } from '~/lib/stores/chat';
 import { ControlPanel } from '~/components/@settings/core/ControlPanel';
-
-/**
- * DOCK_HEIGHT must match the rendered dock height:
- * pt-1.5 + min-h-[44px] + pb-1.5 = ~48px + border + glow line ≈ 52px
- * We use 56px as a safe value that accounts for padding.
- */
-const DOCK_HEIGHT_PX = 56;
+import { classNames } from '~/utils/classNames';
 
 export const MobileShell = memo(() => {
   const activeTab = useStore(mobileActiveTab);
@@ -89,51 +83,39 @@ export const MobileShell = memo(() => {
       <MobileActionDock />
 
       {/* Bottom spacer: pushes content above the dock */}
-      <div
-        className="sm:hidden shrink-0"
-        style={{
-          height: `${DOCK_HEIGHT_PX}px`,
-          marginBottom: 'env(safe-area-inset-bottom, 0px)',
-        }}
-      />
+      <div className="mobile-dock-spacer sm:hidden shrink-0" />
 
-      {/* Workbench floating action bar: sits above the dock */}
+      {/* Workbench floating action bar */}
       {showWorkbench && (
-        <div
-          className="fixed left-2 right-2 z-40 sm:hidden"
-          style={{
-            bottom: `calc(${DOCK_HEIGHT_PX}px + env(safe-area-inset-bottom, 0px) + 8px)`,
-          }}
-        >
+        <div className="mobile-workbench-float-bar fixed left-2 right-2 z-40 sm:hidden">
           <div
-            className="flex items-center gap-2 p-2 rounded-xl shadow-lg border"
-            style={{
-              background: 'rgba(15, 15, 24, 0.88)',
-              backdropFilter: 'blur(20px)',
-              WebkitBackdropFilter: 'blur(20px)',
-              borderColor: 'rgba(139, 92, 246, 0.1)',
-            }}
+            className={classNames(
+              'flex items-center gap-2 p-2 rounded-xl',
+              'shadow-lg shadow-black/20',
+              'border border-[rgba(139,92,246,0.1)]',
+              'bg-[rgba(8,8,16,0.92)] backdrop-blur-xl',
+            )}
           >
             <button
               onClick={handleToggleTerminal}
-              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.97]"
-              style={{
-                background: 'linear-gradient(135deg, rgba(139,92,246,0.15), rgba(168,85,247,0.1))',
-                color: '#c084fc',
-                border: '1px solid rgba(139,92,246,0.2)',
-              }}
+              className={classNames(
+                'flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium',
+                'bg-gradient-to-br from-[rgba(139,92,246,0.14)] to-[rgba(168,85,247,0.08)]',
+                'text-purple-300 border border-[rgba(139,92,246,0.18)]',
+                'active:scale-[0.97] transition-transform duration-150',
+              )}
             >
-              <div className="i-ph:terminal text-sm" />
+              <div className="i-ph:terminal-window text-sm" />
               Terminal
             </button>
             <button
               onClick={handleExportZip}
-              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.97]"
-              style={{
-                background: 'rgba(255,255,255,0.05)',
-                color: '#a0a0b0',
-                border: '1px solid rgba(255,255,255,0.08)',
-              }}
+              className={classNames(
+                'flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium',
+                'bg-[rgba(255,255,255,0.04)] text-gray-400',
+                'border border-[rgba(255,255,255,0.06)]',
+                'active:scale-[0.97] transition-transform duration-150',
+              )}
             >
               <div className="i-ph:download-simple text-sm" />
               Export ZIP

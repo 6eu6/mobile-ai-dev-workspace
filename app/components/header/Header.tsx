@@ -20,14 +20,14 @@ export function Header() {
         'transition-all duration-300 ease-out',
         {
           'border-transparent bg-transparent': !chat.started,
-          'border-b border-bolt-elements-borderColor bg-bolt-elements-bg-depth-1/80 backdrop-blur-xl': chat.started,
+          'border-b border-bolt-elements-borderColor bg-bolt-elements-bg-depth-1/90 backdrop-blur-xl': chat.started,
         },
       )}
     >
       <div className="flex items-center gap-2 z-logo text-bolt-elements-textPrimary cursor-pointer group">
         <button
           onClick={handleMobileMenu}
-          className="sm:hidden p-1.5 -ml-1 rounded-lg hover:bg-bolt-elements-item-backgroundActive transition-colors"
+          className="sm:hidden p-1.5 -ml-1 rounded-lg text-bolt-elements-textSecondary hover:text-purple-300 hover:bg-[rgba(139,92,246,0.08)] transition-colors"
           aria-label="Open menu"
         >
           <div className="i-ph:list text-xl text-bolt-elements-textSecondary" />
@@ -37,12 +37,12 @@ export function Header() {
           <img
             src="/logo-light-styled.png"
             alt="logo"
-            className="h-6 sm:h-7 inline-block dark:hidden transition-transform duration-200 group-hover:scale-105"
+            className="h-5 sm:h-7 inline-block dark:hidden transition-transform duration-200 group-hover:scale-105"
           />
           <img
             src="/logo-dark-styled.png"
             alt="logo"
-            className="h-6 sm:h-7 inline-block hidden dark:block transition-transform duration-200 group-hover:scale-105"
+            className="h-5 sm:h-7 inline-block hidden dark:block transition-transform duration-200 group-hover:scale-105"
           />
         </a>
       </div>
