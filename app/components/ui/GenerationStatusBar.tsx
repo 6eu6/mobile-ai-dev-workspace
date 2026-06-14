@@ -51,17 +51,17 @@ export function GenerationStatusBar() {
       className={classNames(
         'relative overflow-hidden',
         'flex items-center gap-3 px-4 py-2.5 text-sm',
-        'border-b transition-all duration-500 ease-out',
+        'border-b transition-all duration-[var(--bolt-duration-slower)] ease-out',
         isError
-          ? 'bg-red-50/80 dark:bg-red-950/20 border-red-200/60 dark:border-red-900/40 text-red-700 dark:text-red-300'
+          ? 'bg-[var(--bolt-mobile-error-muted)] border-[rgba(248,113,113,0.2)] text-[var(--bolt-mobile-error)]'
           : isDone
-            ? 'bg-green-50/80 dark:bg-green-950/20 border-green-200/60 dark:border-green-900/40 text-green-700 dark:text-green-300'
-            : 'bg-accent-50/60 dark:bg-purple-950/20 border-accent-200/60 dark:border-purple-900/40 text-accent-700 dark:text-purple-300',
+            ? 'bg-[var(--bolt-mobile-success-muted)] border-[rgba(74,222,128,0.2)] text-[var(--bolt-mobile-success)]'
+            : 'bg-[var(--bolt-mobile-accent-faint)] border-[var(--bolt-mobile-surface-border)] text-[var(--bolt-mobile-accent-text)]',
       )}
     >
       {/* Progress bar background */}
       {isActive && (
-        <div className="absolute inset-0 opacity-20">
+        <div className="absolute inset-0 opacity-15">
           <div
             className="h-full bg-gradient-to-r from-[var(--bolt-gradient-start)] to-[var(--bolt-gradient-end)] transition-all duration-1000 ease-out"
             style={{
@@ -103,12 +103,12 @@ export function GenerationStatusBar() {
               <div
                 key={step}
                 className={classNames(
-                  'w-1.5 h-1.5 rounded-full transition-all duration-300',
+                  'w-1.5 h-1.5 rounded-full transition-all duration-[var(--bolt-duration-moderate)]',
                   i < currentStepIndex
-                    ? 'bg-accent-500 dark:bg-purple-400'
+                    ? 'bg-[var(--bolt-mobile-accent)]'
                     : i === currentStepIndex
-                      ? 'bg-accent-500 dark:bg-purple-400 scale-125'
-                      : 'bg-accent-200 dark:bg-purple-800',
+                      ? 'bg-[var(--bolt-mobile-accent)] scale-125'
+                      : 'bg-[var(--bolt-mobile-surface-border)]',
                 )}
               />
             );
@@ -126,12 +126,12 @@ export function GenerationStatusBar() {
       {/* Stuck indicator */}
       {status.isStuck && (
         <div className="relative flex items-center gap-2 ml-auto shrink-0">
-          <span className="text-xs text-amber-600 dark:text-amber-400 font-medium animate-pulse">Seems stuck?</span>
+          <span className="text-xs text-[var(--bolt-mobile-warning)] font-medium animate-pulse">Seems stuck?</span>
           <button
             onClick={() => {
               resetGenerationStatus();
             }}
-            className="text-xs px-2.5 py-1 rounded-lg bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-900/80 transition-all duration-200 active:scale-95"
+            className="text-xs px-2.5 py-1 rounded-[var(--bolt-radius-sm)] bg-[var(--bolt-mobile-error-muted)] text-[var(--bolt-mobile-error)] hover:bg-[rgba(248,113,113,0.2)] transition-all duration-[var(--bolt-duration-normal)] active:scale-95"
           >
             Stop
           </button>
@@ -139,7 +139,7 @@ export function GenerationStatusBar() {
             onClick={() => {
               setGenerationStep('waiting-for-model');
             }}
-            className="text-xs px-2.5 py-1 rounded-lg bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-900/80 transition-all duration-200 active:scale-95"
+            className="text-xs px-2.5 py-1 rounded-[var(--bolt-radius-sm)] bg-[var(--bolt-mobile-accent-muted)] text-[var(--bolt-mobile-accent-text)] hover:bg-[rgba(139,92,246,0.25)] transition-all duration-[var(--bolt-duration-normal)] active:scale-95"
           >
             Retry
           </button>

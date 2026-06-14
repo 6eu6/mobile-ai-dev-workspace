@@ -226,7 +226,7 @@
   --modern-scrollbar-thumb-background: rgba(100, 100, 100, 0.3);
   --modern-scrollbar-thumb-backgroundHover: rgba(10, 10, 10, 0.8);
 
-  /* Mobile surface: slightly different in dark mode for depth */
+  /* Mobile dark theme overrides */
   --bolt-mobile-surface-bg: rgba(10, 10, 18, 0.94);
   --bolt-mobile-surface-border: rgba(139, 92, 246, 0.14);
   --bolt-mobile-surface-glow: rgba(139, 92, 246, 0.08);
@@ -273,9 +273,12 @@
   --bolt-elements-terminal-color-brightCyan: var(--bolt-terminal-brightCyan);
   --bolt-elements-terminal-color-brightWhite: var(--bolt-terminal-brightWhite);
 
-  /* ===== Mobile Design System ===== */
+  /* ============================================================
+   * MOBILE DESIGN SYSTEM — Complete token set
+   * ============================================================ */
 
-  /* Spacing Scale */
+  /* --- Spacing Scale --- */
+  --bolt-space-0: 0px;
   --bolt-space-1: 4px;
   --bolt-space-2: 8px;
   --bolt-space-3: 12px;
@@ -285,36 +288,89 @@
   --bolt-space-8: 32px;
   --bolt-space-10: 40px;
   --bolt-space-12: 48px;
+  --bolt-space-16: 64px;
 
-  /* Radius Scale */
+  /* --- Radius Scale --- */
+  --bolt-radius-xs: 4px;
   --bolt-radius-sm: 6px;
   --bolt-radius-md: 10px;
   --bolt-radius-lg: 14px;
   --bolt-radius-xl: 18px;
+  --bolt-radius-2xl: 24px;
   --bolt-radius-pill: 9999px;
 
-  /* Mobile Surface Tokens */
+  /* --- Mobile Layout Tokens --- */
   --bolt-mobile-dock-height: 56px;
   --bolt-mobile-header-height: 48px;
+  --bolt-mobile-compact-item: 36px;
+  --bolt-mobile-touch-target: 44px;
+
+  /* --- Mobile Surface System --- */
   --bolt-mobile-surface-bg: rgba(10, 10, 18, 0.92);
+  --bolt-mobile-surface-bg-elevated: rgba(14, 14, 24, 0.96);
+  --bolt-mobile-surface-bg-overlay: rgba(8, 8, 16, 0.92);
   --bolt-mobile-surface-border: rgba(139, 92, 246, 0.12);
+  --bolt-mobile-surface-border-subtle: rgba(139, 92, 246, 0.06);
+  --bolt-mobile-surface-border-strong: rgba(139, 92, 246, 0.22);
   --bolt-mobile-surface-glow: rgba(139, 92, 246, 0.06);
 
-  /* Mobile Accent System */
+  /* --- Mobile Accent System (Purple/Violet) --- */
   --bolt-mobile-accent: rgba(139, 92, 246, 1);
+  --bolt-mobile-accent-hover: rgba(167, 119, 247, 1);
   --bolt-mobile-accent-muted: rgba(139, 92, 246, 0.15);
   --bolt-mobile-accent-subtle: rgba(139, 92, 246, 0.08);
+  --bolt-mobile-accent-faint: rgba(139, 92, 246, 0.04);
   --bolt-mobile-accent-text: #c4b5fd;
 
-  /* Mobile Text Hierarchy */
+  /* --- Mobile Text Hierarchy --- */
   --bolt-mobile-text-primary: #f0f0f5;
   --bolt-mobile-text-secondary: #8b8b9e;
   --bolt-mobile-text-tertiary: #5a5a6e;
   --bolt-mobile-text-accent: #c084fc;
+  --bolt-mobile-text-inverse: #0a0a0f;
 
-  /* Mobile Status Colors */
+  /* --- Mobile Status Colors --- */
   --bolt-mobile-success: #4ade80;
+  --bolt-mobile-success-muted: rgba(74, 222, 128, 0.1);
   --bolt-mobile-warning: #fbbf24;
+  --bolt-mobile-warning-muted: rgba(251, 191, 36, 0.1);
   --bolt-mobile-error: #f87171;
+  --bolt-mobile-error-muted: rgba(248, 113, 113, 0.1);
   --bolt-mobile-info: #60a5fa;
+  --bolt-mobile-info-muted: rgba(96, 165, 250, 0.1);
+
+  /* --- Shadow System --- */
+  --bolt-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.15);
+  --bolt-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4), 0 2px 4px rgba(0, 0, 0, 0.2);
+  --bolt-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5), 0 4px 8px rgba(0, 0, 0, 0.25);
+  --bolt-shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.6), 0 8px 16px rgba(0, 0, 0, 0.3);
+  --bolt-shadow-accent: 0 0 16px rgba(139, 92, 246, 0.15);
+  --bolt-shadow-accent-strong: 0 0 24px rgba(139, 92, 246, 0.25);
+
+  /* --- Motion / Duration Scale --- */
+  --bolt-duration-instant: 75ms;
+  --bolt-duration-fast: 150ms;
+  --bolt-duration-normal: 200ms;
+  --bolt-duration-moderate: 300ms;
+  --bolt-duration-slow: 500ms;
+  --bolt-duration-slower: 700ms;
+
+  /* --- Easing --- */
+  --bolt-ease-default: cubic-bezier(0.4, 0, 0.2, 1);
+  --bolt-ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --bolt-ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --bolt-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --bolt-ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
+  --bolt-ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* --- Typography Scale (mobile) --- */
+  --bolt-text-2xs: 10px;
+  --bolt-text-xs: 11px;
+  --bolt-text-sm: 12px;
+  --bolt-text-base: 13px;
+  --bolt-text-md: 14px;
+  --bolt-text-lg: 16px;
+  --bolt-text-xl: 18px;
+  --bolt-text-2xl: 20px;
+  --bolt-text-3xl: 24px;
 }

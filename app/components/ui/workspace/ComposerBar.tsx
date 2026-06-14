@@ -4,26 +4,18 @@ import { classNames } from '~/utils/classNames';
 /**
  * ComposerBar
  *
- * Better mobile chat input wrapper.
- * - Provider/model compact display
- * - API key status indicator
- * - Attach, web, enhance, mic, send/stop buttons
- * - Send button clearly switches between send and stop during generation
+ * Premium "command center" chat input for the AI workspace.
+ * Dark developer-tool aesthetic with purple/violet accent system.
+ *
+ * Features:
+ * - Provider/model pill-shaped badges
+ * - API key status dot (success/error)
+ * - Attach, web, enhance, mic buttons with 36px touch targets
+ * - Send/Stop with gradient and error states
+ * - Press feedback on all interactive elements
  *
  * This is a wrapper/layout component — it renders children in a structured way.
  * The actual input and button logic come from the existing ChatBox.
- *
- * Usage:
- *   <ComposerBar
- *     providerName="OpenAI"
- *     modelName="gpt-4"
- *     hasApiKey={true}
- *     isStreaming={false}
- *     onSend={handleSend}
- *     onStop={handleStop}
- *   >
- *     <textarea ... />
- *   </ComposerBar>
  */
 
 interface ComposerBarProps {
@@ -92,31 +84,53 @@ export const ComposerBar = memo(
       <div
         className={classNames(
           'relative w-full max-w-chat mx-auto',
-          'bg-bolt-elements-prompt-background backdrop-blur-xl',
-          'rounded-xl border border-bolt-elements-borderColor',
-          'shadow-[0_2px_20px_rgba(0,0,0,0.04)] dark:shadow-[0_2px_20px_rgba(0,0,0,0.3)]',
-          'transition-shadow duration-300',
-          'hover:shadow-[0_4px_30px_var(--bolt-glow-color)]',
+          'bg-[var(--bolt-mobile-surface-bg-elevated)] backdrop-blur-xl',
+          'rounded-[var(--bolt-radius-lg)]',
+          'border border-[var(--bolt-mobile-surface-border)]',
+          'shadow-[var(--bolt-shadow-md)]',
+          'transition-shadow duration-[var(--bolt-duration-normal)]',
+          'hover:shadow-[var(--bolt-shadow-accent)]',
           'overflow-hidden',
           className,
         )}
       >
         {/* Provider/model compact header */}
         {(providerName || modelName) && (
-          <div className="flex items-center gap-1.5 px-3 pt-2 pb-0.5">
+          <div className="flex items-center gap-1.5 px-[var(--bolt-space-3)] pt-[var(--bolt-space-2)] pb-[var(--bolt-space-1)]">
             {providerName && (
-              <span className="text-[10px] font-medium text-bolt-elements-textTertiary bg-bolt-elements-bg-depth-3/50 px-1.5 py-0.5 rounded">
+              <span
+                className={classNames(
+                  'text-[var(--bolt-text-2xs)] font-medium',
+                  'text-[var(--bolt-mobile-accent-text)]',
+                  'bg-[var(--bolt-mobile-accent-faint)]',
+                  'px-[var(--bolt-space-2)] py-[2px]',
+                  'rounded-[var(--bolt-radius-pill)]',
+                  'border border-[var(--bolt-mobile-surface-border-subtle)]',
+                )}
+              >
                 {providerName}
               </span>
             )}
             {modelName && (
-              <span className="text-[10px] font-mono text-bolt-elements-textTertiary truncate">{modelName}</span>
+              <span
+                className={classNames(
+                  'text-[var(--bolt-text-2xs)] font-mono',
+                  'text-[var(--bolt-mobile-text-secondary)]',
+                  'bg-[var(--bolt-mobile-accent-faint)]',
+                  'px-[var(--bolt-space-2)] py-[2px]',
+                  'rounded-[var(--bolt-radius-pill)]',
+                  'border border-[var(--bolt-mobile-surface-border-subtle)]',
+                  'truncate max-w-[180px]',
+                )}
+              >
+                {modelName}
+              </span>
             )}
             {hasApiKey !== undefined && (
               <div
                 className={classNames(
-                  'w-1.5 h-1.5 rounded-full shrink-0 ml-auto',
-                  hasApiKey ? 'bg-green-500' : 'bg-red-500',
+                  'w-[6px] h-[6px] rounded-full shrink-0 ml-auto',
+                  hasApiKey ? 'bg-[var(--bolt-mobile-success)]' : 'bg-[var(--bolt-mobile-error)]',
                 )}
                 title={hasApiKey ? 'API key configured' : 'API key missing'}
               />
@@ -125,13 +139,15 @@ export const ComposerBar = memo(
         )}
 
         {/* Input area */}
-        <div className="px-2 py-1">{children}</div>
+        <div className="px-[var(--bolt-space-3)] py-[var(--bolt-space-1)]">{children}</div>
 
         {/* Action bar */}
         {actionsSlot ? (
-          <div className="flex items-center gap-0.5 px-2 pb-2 pt-0.5">{actionsSlot}</div>
+          <div className="flex items-center gap-1 px-[var(--bolt-space-2)] pb-[var(--bolt-space-2)] pt-[var(--bolt-space-1)]">
+            {actionsSlot}
+          </div>
         ) : (
-          <div className="flex items-center gap-0.5 px-2 pb-2 pt-0.5">
+          <div className="flex items-center gap-1 px-[var(--bolt-space-2)] pb-[var(--bolt-space-2)] pt-[var(--bolt-space-1)]">
             {/* Attach */}
             {onAttach && <ComposerIconButton icon="i-ph:paperclip" label="Attach" onClick={onAttach} />}
 
@@ -168,11 +184,12 @@ export const ComposerBar = memo(
                 <button
                   onClick={onStop}
                   className={classNames(
-                    'flex items-center justify-center w-8 h-8 rounded-lg',
-                    'bg-red-500/15 text-red-500 dark:text-red-400',
-                    'border border-red-500/30',
-                    'hover:bg-red-500/25 transition-all duration-200',
-                    'active:scale-90',
+                    'flex items-center justify-center w-9 h-9 rounded-lg',
+                    'bg-[var(--bolt-mobile-error-muted)] text-[var(--bolt-mobile-error)]',
+                    'border border-[var(--bolt-mobile-error)]/20',
+                    'hover:bg-[var(--bolt-mobile-error-muted)]/80',
+                    'active:scale-[0.9]',
+                    'transition-transform duration-[var(--bolt-duration-fast)]',
                   )}
                   aria-label="Stop generation"
                 >
@@ -182,12 +199,12 @@ export const ComposerBar = memo(
                 <button
                   onClick={onSend}
                   className={classNames(
-                    'flex items-center justify-center w-8 h-8 rounded-lg',
+                    'flex items-center justify-center w-9 h-9 rounded-lg',
                     'bg-gradient-to-r from-[var(--bolt-gradient-start)] to-[var(--bolt-gradient-mid)]',
                     'text-white',
-                    'hover:shadow-[0_0_16px_var(--bolt-glow-color)]',
-                    'transition-all duration-200',
-                    'active:scale-90',
+                    'hover:shadow-[var(--bolt-shadow-accent)]',
+                    'active:scale-[0.9]',
+                    'transition-all duration-[var(--bolt-duration-fast)]',
                   )}
                   aria-label="Send message"
                 >
@@ -219,13 +236,15 @@ const ComposerIconButton = memo(({ icon, label, onClick, disabled, active, spinn
     onClick={onClick}
     disabled={disabled}
     className={classNames(
-      'flex items-center justify-center w-8 h-8 rounded-lg',
-      'text-bolt-elements-textTertiary hover:text-bolt-elements-textSecondary',
-      'hover:bg-bolt-elements-bg-depth-3/50',
-      'transition-all duration-150',
-      'active:scale-90',
+      'flex items-center justify-center w-9 h-9 rounded-lg',
+      'text-[var(--bolt-mobile-text-secondary)]',
+      'hover:text-[var(--bolt-mobile-text-primary)]',
+      'hover:bg-[var(--bolt-mobile-accent-faint)]',
+      'active:scale-[0.9]',
+      'transition-all duration-[var(--bolt-duration-fast)]',
       'disabled:opacity-40 disabled:pointer-events-none',
-      active && 'text-accent-500 dark:text-purple-400 bg-accent-500/10 dark:bg-purple-500/10',
+      active &&
+        'text-[var(--bolt-mobile-accent-text)] bg-[var(--bolt-mobile-accent-muted)] ring-2 ring-[var(--bolt-mobile-accent)]',
       spinning && 'animate-spin',
     )}
     aria-label={label}

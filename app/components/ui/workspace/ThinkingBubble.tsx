@@ -5,7 +5,7 @@ import { classNames } from '~/utils/classNames';
  * ThinkingBubble
  *
  * Small assistant thinking indicator. Three dots with a subtle wave animation.
- * Should feel polished and lightweight.
+ * Uses the mobile accent system for consistent purple tinting.
  *
  * Usage:
  *   <ThinkingBubble />
@@ -31,8 +31,7 @@ export const ThinkingBubble = memo(({ size = 'md', className }: ThinkingBubblePr
     <div
       className={classNames(
         'inline-flex items-center rounded-2xl',
-        'bg-bolt-elements-bg-depth-2/80 dark:bg-bolt-elements-bg-depth-2/60',
-        'border border-bolt-elements-borderColor/40',
+        'bg-[var(--bolt-mobile-accent-faint)] border border-[var(--bolt-mobile-surface-border)]',
         'backdrop-blur-sm',
         sizeConfig.wrapper,
         className,
@@ -41,15 +40,15 @@ export const ThinkingBubble = memo(({ size = 'md', className }: ThinkingBubblePr
       aria-label="Assistant is thinking"
     >
       <span
-        className={classNames(sizeConfig.dot, 'rounded-full bg-accent-400 dark:bg-purple-400 opacity-80')}
+        className={classNames(sizeConfig.dot, 'rounded-full bg-[var(--bolt-mobile-accent-text)] opacity-80')}
         style={{ animation: 'thinkingBubbleDot 1.4s ease-in-out infinite', animationDelay: '0ms' }}
       />
       <span
-        className={classNames(sizeConfig.dot, 'rounded-full bg-accent-400 dark:bg-purple-400 opacity-80')}
+        className={classNames(sizeConfig.dot, 'rounded-full bg-[var(--bolt-mobile-accent-text)] opacity-80')}
         style={{ animation: 'thinkingBubbleDot 1.4s ease-in-out infinite', animationDelay: '160ms' }}
       />
       <span
-        className={classNames(sizeConfig.dot, 'rounded-full bg-accent-400 dark:bg-purple-400 opacity-80')}
+        className={classNames(sizeConfig.dot, 'rounded-full bg-[var(--bolt-mobile-accent-text)] opacity-80')}
         style={{ animation: 'thinkingBubbleDot 1.4s ease-in-out infinite', animationDelay: '320ms' }}
       />
     </div>

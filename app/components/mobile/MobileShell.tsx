@@ -6,7 +6,6 @@ import { mobileActiveTab } from '~/lib/stores/mobile';
 import { workbenchStore } from '~/lib/stores/workbench';
 import { chatStore } from '~/lib/stores/chat';
 import { ControlPanel } from '~/components/@settings/core/ControlPanel';
-import { classNames } from '~/utils/classNames';
 
 export const MobileShell = memo(() => {
   const activeTab = useStore(mobileActiveTab);
@@ -83,39 +82,41 @@ export const MobileShell = memo(() => {
       <MobileActionDock />
 
       {/* Bottom spacer: pushes content above the dock */}
-      <div className="mobile-dock-spacer sm:hidden shrink-0" />
+      <div className="sm:hidden shrink-0" style={{ height: 'var(--bolt-mobile-dock-height)' }} />
 
       {/* Workbench floating action bar */}
       {showWorkbench && (
-        <div className="mobile-workbench-float-bar fixed left-2 right-2 z-40 sm:hidden">
+        <div className="fixed left-2 right-2 z-40 sm:hidden">
           <div
-            className={classNames(
-              'flex items-center gap-2 p-2 rounded-xl',
-              'shadow-lg shadow-black/20',
-              'border border-[rgba(139,92,246,0.1)]',
-              'bg-[rgba(8,8,16,0.92)] backdrop-blur-xl',
-            )}
+            className="flex items-center gap-2 p-2 rounded-xl backdrop-blur-xl"
+            style={{
+              background: 'var(--bolt-mobile-surface-bg-elevated)',
+              boxShadow: 'var(--bolt-shadow-md)',
+              border: '1px solid var(--bolt-mobile-surface-border)',
+            }}
           >
             <button
               onClick={handleToggleTerminal}
-              className={classNames(
-                'flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium',
-                'bg-gradient-to-br from-[rgba(139,92,246,0.14)] to-[rgba(168,85,247,0.08)]',
-                'text-purple-300 border border-[rgba(139,92,246,0.18)]',
-                'active:scale-[0.97] transition-transform duration-150',
-              )}
+              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium active:scale-[0.95]"
+              style={{
+                background: 'var(--bolt-mobile-accent-muted)',
+                color: 'var(--bolt-mobile-accent-text)',
+                border: '1px solid var(--bolt-mobile-surface-border)',
+                transition: 'transform var(--bolt-duration-fast) var(--bolt-ease-default)',
+              }}
             >
               <div className="i-ph:terminal-window text-sm" />
               Terminal
             </button>
             <button
               onClick={handleExportZip}
-              className={classNames(
-                'flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium',
-                'bg-[rgba(255,255,255,0.04)] text-gray-400',
-                'border border-[rgba(255,255,255,0.06)]',
-                'active:scale-[0.97] transition-transform duration-150',
-              )}
+              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium active:scale-[0.95]"
+              style={{
+                background: 'var(--bolt-mobile-accent-faint)',
+                color: 'var(--bolt-mobile-text-secondary)',
+                border: '1px solid var(--bolt-mobile-surface-border)',
+                transition: 'transform var(--bolt-duration-fast) var(--bolt-ease-default)',
+              }}
             >
               <div className="i-ph:download-simple text-sm" />
               Export ZIP

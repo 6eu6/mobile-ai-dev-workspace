@@ -4,14 +4,13 @@ import { motion } from 'framer-motion';
 import { mobileActiveTab, type MobileTab } from '~/lib/stores/mobile';
 import { workbenchStore } from '~/lib/stores/workbench';
 import { chatStore } from '~/lib/stores/chat';
-import { classNames } from '~/utils/classNames';
 
 /**
  * MobileActionDock — Premium mobile bottom navigation
  *
  * 5 tabs: Chat, Preview, Code, Terminal, Settings
- * Dark glass surface, purple accent system, Phosphor icons.
- * Safe-area aware.
+ * Dark glass surface with CSS custom properties, purple accent system, Phosphor icons.
+ * Safe-area aware. Uses design tokens from variables.scss.
  */
 
 const DOCK_ITEMS: { id: MobileTab; label: string; icon: string; iconActive: string }[] = [
@@ -58,21 +57,20 @@ export const MobileActionDock = memo(() => {
 
   return (
     <div
-      className={classNames(
-        'fixed bottom-0 left-0 right-0 z-50 sm:hidden',
-        'bg-[rgba(8,8,16,0.95)] dark:bg-[rgba(8,8,16,0.96)]',
-        'backdrop-blur-2xl',
-        'border-t border-[rgba(139,92,246,0.08)]',
-      )}
-      style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+      className="fixed bottom-0 left-0 right-0 z-50 sm:hidden backdrop-blur-2xl"
+      style={{
+        background: 'var(--bolt-mobile-surface-bg-elevated)',
+        borderTop: '1px solid var(--bolt-mobile-surface-border)',
+        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+      }}
     >
-      {/* Top accent gradient line */}
+      {/* Top accent gradient line with shimmer */}
       <div
         className="absolute top-0 left-0 right-0 h-px pointer-events-none"
         style={{
           background:
             'linear-gradient(90deg, transparent 5%, var(--bolt-gradient-start) 30%, var(--bolt-gradient-mid) 50%, var(--bolt-gradient-end) 70%, transparent 95%)',
-          opacity: 0.35,
+          animation: 'accentLineShimmer 3s ease-in-out infinite',
         }}
       />
 
@@ -84,13 +82,11 @@ export const MobileActionDock = memo(() => {
             <button
               key={item.id}
               onClick={() => handleTabChange(item.id)}
-              className={classNames(
-                'relative flex flex-col items-center justify-center',
-                'min-w-[48px] min-h-[44px]',
-                'rounded-xl transition-all duration-200 outline-none',
-                'active:scale-[0.92]',
-                isActive ? 'text-purple-300' : 'text-gray-500 active:text-gray-400',
-              )}
+              className="relative flex flex-col items-center justify-center min-w-[48px] min-h-[44px] rounded-xl outline-none active:scale-[0.9]"
+              style={{
+                transition: `transform var(--bolt-duration-fast) var(--bolt-ease-default)`,
+                color: isActive ? 'var(--bolt-mobile-text-accent)' : 'var(--bolt-mobile-text-tertiary)',
+              }}
               aria-label={item.label}
               aria-pressed={isActive}
             >
@@ -99,8 +95,8 @@ export const MobileActionDock = memo(() => {
                 <motion.div
                   className="absolute inset-1 rounded-lg"
                   style={{
-                    background: 'linear-gradient(135deg, rgba(139,92,246,0.14), rgba(168,85,247,0.06))',
-                    boxShadow: '0 0 16px rgba(139,92,246,0.06)',
+                    background: 'var(--bolt-mobile-accent-muted)',
+                    boxShadow: 'var(--bolt-shadow-accent)',
                   }}
                   layoutId="dockActivePill"
                   transition={{ type: 'spring', stiffness: 350, damping: 30 }}
@@ -110,31 +106,35 @@ export const MobileActionDock = memo(() => {
               {/* Icon */}
               <div className="relative z-1">
                 <div
-                  className={classNames(
-                    isActive ? item.iconActive : item.icon,
-                    'text-[18px] transition-all duration-200',
-                    isActive && 'drop-shadow-[0_0_6px_rgba(139,92,246,0.35)]',
-                  )}
+                  className={`${isActive ? item.iconActive : item.icon} text-[18px]`}
+                  style={{
+                    transition: `all var(--bolt-duration-fast) var(--bolt-ease-default)`,
+                    ...(isActive && {
+                      filter: 'drop-shadow(0 0 6px rgba(139, 92, 246, 0.4))',
+                    }),
+                  }}
                 />
               </div>
 
               {/* Label */}
               <span
-                className={classNames(
-                  'relative z-1 text-[9px] mt-0.5 leading-tight font-medium transition-all duration-200',
-                  isActive ? 'text-purple-300' : 'text-gray-500',
-                )}
+                className="relative z-1 text-[9px] mt-0.5 leading-tight font-medium"
+                style={{
+                  color: isActive ? 'var(--bolt-mobile-accent-text)' : 'var(--bolt-mobile-text-tertiary)',
+                  transition: `color var(--bolt-duration-fast) var(--bolt-ease-default)`,
+                }}
               >
                 {item.label}
               </span>
 
-              {/* Active indicator dot */}
+              {/* Active indicator dot with pulse animation */}
               {isActive && (
                 <motion.div
                   className="absolute -top-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full"
                   style={{
                     background: 'var(--bolt-gradient-mid)',
-                    boxShadow: '0 0 6px rgba(168,85,247,0.5)',
+                    boxShadow: '0 0 6px rgba(168, 85, 247, 0.5)',
+                    animation: 'dockIndicatorPulse 2s ease-in-out infinite',
                   }}
                   initial={{ scale: 0, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}

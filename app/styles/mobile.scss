@@ -1,5 +1,5 @@
 /**
- * Mobile Design System
+ * Mobile Design System — Complete Stylesheet
  *
  * A cohesive mobile-first stylesheet for the bolt.diy AI workspace.
  * All rules apply only on viewports < 640px (sm breakpoint).
@@ -10,6 +10,7 @@
  * - Consistent spacing, radius, and color usage
  * - Proper safe-area handling
  * - No horizontal overflow
+ * - Touch-friendly targets (min 44px)
  */
 
 @media (max-width: 639px) {
@@ -28,6 +29,7 @@
 
   body {
     touch-action: pan-y;
+    -webkit-tap-highlight-color: transparent;
   }
 
   /* Ensure all major containers clamp to viewport */
@@ -51,6 +53,10 @@
     --header-height: var(--bolt-mobile-header-height);
   }
 
+  header {
+    border-bottom-color: var(--bolt-mobile-surface-border);
+  }
+
   /* ============================================
    * C) CHAT LAYOUT
    * ============================================ */
@@ -62,7 +68,7 @@
     width: 100%;
   }
 
-  /* Bottom padding clears the dock */
+  /* Bottom padding clears the dock + safe area */
   .Chat > .flex > .flex {
     padding-bottom: calc(var(--bolt-mobile-dock-height) + env(safe-area-inset-bottom, 0px) + 8px);
   }
@@ -148,7 +154,7 @@
 
   /* File tree: tappable items */
   .z-workbench [role='treeitem'] {
-    min-height: 36px;
+    min-height: var(--bolt-mobile-compact-item);
     padding: 4px 8px;
   }
 
@@ -177,7 +183,7 @@
    * ============================================ */
 
   #intro {
-    margin-top: 6vh;
+    margin-top: 4vh;
   }
 
   /* ============================================
@@ -195,6 +201,24 @@
 
   .flex.justify-center .flex.flex-wrap .group > div > div {
     opacity: 0.9;
+  }
+
+  /* Example prompt chips: readable on dark bg */
+  #examples button {
+    padding: 6px 10px;
+    font-size: 11px;
+    border-color: var(--bolt-mobile-surface-border);
+    color: var(--bolt-mobile-text-secondary);
+    background: var(--bolt-mobile-accent-faint);
+    border-radius: var(--bolt-radius-md);
+    transition: all var(--bolt-duration-normal) var(--bolt-ease-default);
+  }
+
+  #examples button:hover,
+  #examples button:active {
+    color: var(--bolt-mobile-accent-text);
+    border-color: var(--bolt-mobile-surface-border-strong);
+    background: var(--bolt-mobile-accent-subtle);
   }
 
   /* ============================================
@@ -220,12 +244,79 @@
 
   /* Spacer that pushes content above the dock */
   .mobile-dock-spacer {
-    height: var(--bolt-mobile-dock-height, 56px);
+    height: var(--bolt-mobile-dock-height);
     margin-bottom: env(safe-area-inset-bottom, 0px);
   }
 
   /* Floating workbench action bar — sits above the dock */
   .mobile-workbench-float-bar {
-    bottom: calc(var(--bolt-mobile-dock-height, 56px) + env(safe-area-inset-bottom, 0px) + 8px);
+    bottom: calc(var(--bolt-mobile-dock-height) + env(safe-area-inset-bottom, 0px) + 8px);
+  }
+
+  /* ============================================
+   * K) CHAT MESSAGES — Mobile refinements
+   * ============================================ */
+
+  /* Compact message bubbles on mobile */
+  .Chat .max-w-chat {
+    padding-left: var(--bolt-space-3);
+    padding-right: var(--bolt-space-3);
+  }
+
+  /* AI response artifacts: full width on mobile */
+  [data-artifact] {
+    border-radius: var(--bolt-radius-lg);
+    margin: var(--bolt-space-2) 0;
+  }
+
+  /* ============================================
+   * L) INPUT AREA — Mobile refinements
+   * ============================================ */
+
+  /* Ensure the prompt input area doesn't get cut off */
+  .z-prompt {
+    padding-bottom: 0;
+  }
+
+  /* Action buttons in input area: touch-friendly */
+  .z-prompt button {
+    min-width: 36px;
+    min-height: 36px;
+  }
+
+  /* ============================================
+   * M) PREVIEW — Mobile refinements
+   * ============================================ */
+
+  /* Preview address bar: compact */
+  .z-workbench input[type='text'] {
+    font-size: 12px;
+  }
+
+  /* ============================================
+   * N) CUSTOM SCROLLBAR — Mobile
+   * ============================================ */
+
+  .modern-scrollbar {
+    scrollbar-width: none;
+
+    &::-webkit-scrollbar {
+      display: none;
+    }
+  }
+
+  /* ============================================
+   * O) ANIMATIONS — Mobile overrides
+   * ============================================ */
+
+  /* Reduce motion for users who prefer it */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 }

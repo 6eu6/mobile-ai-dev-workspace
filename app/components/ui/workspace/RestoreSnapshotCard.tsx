@@ -6,7 +6,7 @@ import { classNames } from '~/utils/classNames';
  *
  * Shows restored workspace state after refresh.
  * States: restoring, restored, interrupted-restored, restore-failed.
- * Must be clear and reassuring.
+ * Uses mobile design system tokens for consistent styling.
  *
  * Usage:
  *   <RestoreSnapshotCard status="restoring" />
@@ -35,34 +35,34 @@ const STATUS_CONFIG: Record<
     icon: 'i-ph:arrow-counter-clockwise',
     title: 'Restoring workspace',
     description: 'Recovering your last session...',
-    colorClass: 'border-accent-300/30 dark:border-purple-500/30 bg-accent-500/5 dark:bg-purple-500/5',
+    colorClass: 'border-[rgba(139,92,246,0.2)] bg-[var(--bolt-mobile-accent-faint)]',
     animate: true,
   },
   restored: {
     icon: 'i-ph:check-circle',
     title: 'Workspace restored',
     description: 'Your session has been recovered successfully.',
-    colorClass: 'border-green-300/30 dark:border-green-500/30 bg-green-500/5',
+    colorClass: 'border-[rgba(74,222,128,0.2)] bg-[var(--bolt-mobile-success-muted)]',
   },
   'interrupted-restored': {
     icon: 'i-ph:arrow-counter-clockwise',
     title: 'Session recovered',
     description: 'The last generation was interrupted. Your progress has been saved and restored.',
-    colorClass: 'border-amber-300/30 dark:border-amber-500/30 bg-amber-500/5',
+    colorClass: 'border-[rgba(251,191,36,0.2)] bg-[var(--bolt-mobile-warning-muted)]',
   },
   'restore-failed': {
     icon: 'i-ph:warning-circle',
     title: 'Restore failed',
     description: 'Could not recover your last session. Starting fresh.',
-    colorClass: 'border-red-300/30 dark:border-red-500/30 bg-red-500/5',
+    colorClass: 'border-[rgba(248,113,113,0.2)] bg-[var(--bolt-mobile-error-muted)]',
   },
 };
 
 const ICON_COLOR: Record<RestoreSnapshotStatus, string> = {
-  restoring: 'text-accent-500 dark:text-purple-400',
-  restored: 'text-green-500 dark:text-green-400',
-  'interrupted-restored': 'text-amber-500 dark:text-amber-400',
-  'restore-failed': 'text-red-500 dark:text-red-400',
+  restoring: 'text-[var(--bolt-mobile-accent-text)]',
+  restored: 'text-[var(--bolt-mobile-success)]',
+  'interrupted-restored': 'text-[var(--bolt-mobile-warning)]',
+  'restore-failed': 'text-[var(--bolt-mobile-error)]',
 };
 
 export const RestoreSnapshotCard = memo(
@@ -73,8 +73,8 @@ export const RestoreSnapshotCard = memo(
     return (
       <div
         className={classNames(
-          'flex items-start gap-3 px-4 py-3 rounded-xl border',
-          'transition-all duration-300 ease-out',
+          'flex items-start gap-3 px-4 py-3 rounded-[var(--bolt-radius-xl)] border',
+          'transition-all duration-[var(--bolt-duration-moderate)] ease-out',
           config.colorClass,
           className,
         )}
@@ -84,8 +84,8 @@ export const RestoreSnapshotCard = memo(
         {/* Status icon */}
         <div
           className={classNames(
-            'w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5',
-            'bg-bolt-elements-bg-depth-2/60',
+            'w-8 h-8 rounded-[var(--bolt-radius-sm)] flex items-center justify-center shrink-0 mt-0.5',
+            'bg-[var(--bolt-mobile-surface-bg)]',
             ICON_COLOR[effectiveStatus],
             config.animate && 'animate-pulse',
           )}
@@ -96,14 +96,18 @@ export const RestoreSnapshotCard = memo(
         {/* Content */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <h3 className="text-sm font-semibold text-bolt-elements-textPrimary">{config.title}</h3>
+            <h3 className="text-sm font-semibold text-[var(--bolt-mobile-text-primary)]">{config.title}</h3>
             {config.animate && (
-              <div className="w-3 h-3 rounded-full border-2 border-accent-300 dark:border-purple-600 border-t-accent-500 dark:border-t-purple-400 animate-spin" />
+              <div className="w-3 h-3 rounded-full border-2 border-[var(--bolt-mobile-accent-faint)] border-t-[var(--bolt-mobile-accent-text)] animate-spin" />
             )}
           </div>
-          <p className="text-xs text-bolt-elements-textSecondary mt-0.5 leading-relaxed">{config.description}</p>
+          <p className="text-xs text-[var(--bolt-mobile-text-secondary)] mt-0.5 leading-relaxed">
+            {config.description}
+          </p>
           {snapshotTime && (
-            <p className="text-[10px] text-bolt-elements-textTertiary mt-1 font-mono">Snapshot from {snapshotTime}</p>
+            <p className="text-[10px] text-[var(--bolt-mobile-text-tertiary)] mt-1 font-mono">
+              Snapshot from {snapshotTime}
+            </p>
           )}
         </div>
       </div>

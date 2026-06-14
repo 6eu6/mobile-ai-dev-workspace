@@ -41,37 +41,42 @@ export function RestoreOverlay() {
     <AnimatePresence>
       {restoring && (
         <motion.div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(8,8,16,0.92)] backdrop-blur-xl"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bolt-mobile-surface-bg-overlay)] backdrop-blur-xl"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.3 }}
         >
           <motion.div
-            className="flex flex-col items-center gap-6 p-8 max-w-sm w-full"
+            className="flex w-full max-w-sm flex-col items-center gap-6 p-8"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 10 }}
-            transition={{ duration: 0.4, delay: 0.1 }}
+            transition={{ duration: 0.5, delay: 0.1, type: 'spring', stiffness: 200, damping: 25 }}
           >
             {/* Main spinner */}
             <div className="relative">
-              <div className="w-16 h-16 rounded-full border-4 border-[rgba(139,92,246,0.2)] border-t-purple-400 animate-spin" />
+              <div className="h-16 w-16 animate-spin rounded-full border-4 border-[var(--bolt-mobile-accent-faint)] border-t-[var(--bolt-mobile-accent-text)]" />
               <div
-                className={classNames('absolute inset-0 flex items-center justify-center text-2xl', 'text-purple-400')}
+                className={classNames(
+                  'absolute inset-0 flex items-center justify-center',
+                  'text-[var(--bolt-mobile-accent-text)]',
+                )}
               >
-                <div className={RESTORE_ICONS[status.step]} />
+                <div className={classNames(RESTORE_ICONS[status.step], 'text-2xl')} />
               </div>
             </div>
 
             {/* Status text */}
             <div className="text-center">
-              <h2 className="text-lg font-semibold text-bolt-elements-textPrimary">Restoring Workspace</h2>
-              <p className="mt-2 text-sm text-bolt-elements-textSecondary">{RESTORE_STEP_LABELS[status.step]}</p>
+              <h2 className="text-lg font-semibold text-[var(--bolt-mobile-text-primary)]">Restoring Workspace</h2>
+              <p className="mt-2 text-sm text-[var(--bolt-mobile-text-secondary)]">
+                {RESTORE_STEP_LABELS[status.step]}
+              </p>
             </div>
 
             {/* Step indicators */}
-            <div className="flex items-center gap-2 w-full justify-center">
+            <div className="flex w-full items-center justify-center gap-2">
               {STEP_ORDER.map((step, idx) => {
                 const isCompleted = currentStepIndex > idx;
                 const isCurrent = currentStepIndex === idx;
@@ -81,17 +86,18 @@ export function RestoreOverlay() {
                   <div key={step} className="flex items-center gap-2">
                     <div
                       className={classNames(
-                        'w-2.5 h-2.5 rounded-full transition-all duration-300',
-                        isCompleted && 'bg-green-500 dark:bg-green-400',
-                        isCurrent && 'bg-purple-400 scale-125 ring-2 ring-purple-400/30',
-                        isPending && 'bg-[rgba(139,92,246,0.15)]',
+                        'h-2.5 w-2.5 rounded-full transition-all duration-300',
+                        isCompleted && 'bg-[var(--bolt-mobile-success)]',
+                        isCurrent &&
+                          'scale-125 bg-[var(--bolt-mobile-accent-text)] ring-2 ring-[var(--bolt-mobile-accent)]/30',
+                        isPending && 'bg-[var(--bolt-mobile-accent-faint)]',
                       )}
                     />
                     {idx < STEP_ORDER.length - 1 && (
                       <div
                         className={classNames(
-                          'w-6 h-0.5 transition-colors duration-300',
-                          isCompleted ? 'bg-green-500/60 dark:bg-green-400/60' : 'bg-[rgba(139,92,246,0.1)]',
+                          'h-0.5 w-6 transition-colors duration-300',
+                          isCompleted ? 'bg-[var(--bolt-mobile-success)]/60' : 'bg-[var(--bolt-mobile-surface-border)]',
                         )}
                       />
                     )}

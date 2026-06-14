@@ -10,12 +10,12 @@ import { classNames } from '~/utils/classNames';
 /**
  * ProjectSwitcherDrawer
  *
- * Mobile-friendly project list drawer.
- * - New Project button
- * - Recent Projects with date binning
- * - Project item: title, last updated, status badge
- * - Delete and open actions
- * - Should not break current IndexedDB logic
+ * Premium mobile project list drawer with dark developer-tool aesthetic.
+ * - Animated gradient accent line at top
+ * - New Project button with full gradient
+ * - Date-binned project list with status badges
+ * - Mobile-friendly delete (visible on press)
+ * - Safe-area support
  *
  * Usage:
  *   <ProjectSwitcherDrawer open={open} onClose={onClose} />
@@ -163,22 +163,43 @@ export const ProjectSwitcherDrawer = memo(({ open, onClose }: ProjectSwitcherDra
     switch (status) {
       case 'generating':
         return (
-          <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-accent-500/10 dark:bg-purple-500/15 text-accent-600 dark:text-purple-300 border border-[rgba(139,92,246,0.2)]">
-            <span className="w-1 h-1 rounded-full bg-accent-500 dark:bg-purple-400 animate-pulse" />
+          <span
+            className={classNames(
+              'inline-flex items-center gap-1',
+              'text-[10px] px-1.5 py-0.5 rounded-full',
+              'bg-[var(--bolt-mobile-accent-muted)] text-[var(--bolt-mobile-accent-text)]',
+              'border border-[var(--bolt-mobile-surface-border)]',
+            )}
+          >
+            <span className="w-1 h-1 rounded-full bg-[var(--bolt-mobile-accent)] animate-pulse" />
             Generating
           </span>
         );
       case 'interrupted':
         return (
-          <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 dark:bg-amber-500/15 text-amber-600 dark:text-amber-300 border border-[rgba(251,191,36,0.2)]">
-            <span className="w-1 h-1 rounded-full bg-amber-500 dark:bg-amber-400" />
+          <span
+            className={classNames(
+              'inline-flex items-center gap-1',
+              'text-[10px] px-1.5 py-0.5 rounded-full',
+              'bg-[var(--bolt-mobile-warning-muted)] text-[var(--bolt-mobile-warning)]',
+              'border border-[var(--bolt-mobile-surface-border)]',
+            )}
+          >
+            <span className="w-1 h-1 rounded-full bg-[var(--bolt-mobile-warning)]" />
             Interrupted
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/10 dark:bg-green-500/15 text-green-600 dark:text-green-300 border border-[rgba(74,222,128,0.2)]">
-            <span className="w-1 h-1 rounded-full bg-green-500 dark:bg-green-400" />
+          <span
+            className={classNames(
+              'inline-flex items-center gap-1',
+              'text-[10px] px-1.5 py-0.5 rounded-full',
+              'bg-[var(--bolt-mobile-success-muted)] text-[var(--bolt-mobile-success)]',
+              'border border-[var(--bolt-mobile-surface-border)]',
+            )}
+          >
+            <span className="w-1 h-1 rounded-full bg-[var(--bolt-mobile-success)]" />
             Saved
           </span>
         );
@@ -191,7 +212,7 @@ export const ProjectSwitcherDrawer = memo(({ open, onClose }: ProjectSwitcherDra
         <>
           {/* Backdrop */}
           <motion.div
-            className="fixed inset-0 z-[998] bg-black/50 backdrop-blur-sm"
+            className="fixed inset-0 z-[998] bg-black/60 backdrop-blur-sm"
             variants={OVERLAY_VARIANTS}
             initial="hidden"
             animate="visible"
@@ -204,10 +225,9 @@ export const ProjectSwitcherDrawer = memo(({ open, onClose }: ProjectSwitcherDra
           <motion.div
             className={classNames(
               'fixed inset-x-0 bottom-0 z-[999] flex flex-col',
-              'bg-[rgba(10,10,18,0.98)]',
-              'border-t border-bolt-elements-borderColor/60',
+              'bg-[var(--bolt-mobile-surface-bg-elevated)]',
               'rounded-t-2xl',
-              'shadow-[0_-8px_40px_rgba(0,0,0,0.5)]',
+              'shadow-[var(--bolt-shadow-xl)]',
             )}
             style={{ maxHeight: '85dvh', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
             variants={DRAWER_VARIANTS}
@@ -216,27 +236,31 @@ export const ProjectSwitcherDrawer = memo(({ open, onClose }: ProjectSwitcherDra
             exit="exit"
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
           >
-            {/* Top border accent */}
+            {/* Top accent line with shimmer */}
             <div
-              className="absolute top-0 left-0 right-0 h-px pointer-events-none"
+              className="absolute top-0 left-0 right-0 h-[2px] pointer-events-none rounded-t-2xl overflow-hidden"
               style={{
                 background:
                   'linear-gradient(90deg, transparent 5%, var(--bolt-gradient-start) 30%, var(--bolt-gradient-mid) 50%, var(--bolt-gradient-end) 70%, transparent 95%)',
-                opacity: 0.35,
+                animation: 'accentLineShimmer 2.5s ease-in-out infinite',
               }}
             />
 
             {/* Drag handle */}
-            <div className="flex justify-center pt-2.5 pb-1">
-              <div className="w-8 h-1 rounded-full bg-[rgba(139,92,246,0.2)]" />
+            <div className="flex justify-center pt-3 pb-1">
+              <div className="w-9 h-1 rounded-full bg-[var(--bolt-mobile-surface-border)]" />
             </div>
 
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-3">
-              <h2 className="text-base font-semibold text-bolt-elements-textPrimary">Projects</h2>
+              <h2 className="text-base font-semibold text-[var(--bolt-mobile-text-primary)]">Projects</h2>
               <button
                 onClick={onClose}
-                className="p-1.5 rounded-lg hover:bg-[rgba(139,92,246,0.08)] hover:text-purple-300 text-bolt-elements-textTertiary transition-colors active:scale-95"
+                className={classNames(
+                  'p-1.5 rounded-lg transition-colors active:scale-95',
+                  'text-[var(--bolt-mobile-text-tertiary)]',
+                  'hover:bg-[var(--bolt-mobile-accent-faint)] hover:text-[var(--bolt-mobile-accent-text)]',
+                )}
                 aria-label="Close"
               >
                 <div className="i-ph:x text-base" />
@@ -248,11 +272,13 @@ export const ProjectSwitcherDrawer = memo(({ open, onClose }: ProjectSwitcherDra
               <button
                 onClick={handleNewProject}
                 className={classNames(
-                  'w-full flex items-center justify-center gap-2 rounded-lg px-4 py-2.5',
+                  'w-full flex items-center justify-center gap-2',
+                  'rounded-[var(--bolt-radius-md)] px-4 py-2.5',
                   'bg-gradient-to-r from-[var(--bolt-gradient-start)] to-[var(--bolt-gradient-mid)]',
                   'text-white font-medium text-sm',
-                  'hover:shadow-[0_0_20px_var(--bolt-glow-color)]',
+                  'shadow-[var(--bolt-shadow-accent)]',
                   'transition-all duration-200 active:scale-[0.98]',
+                  'hover:shadow-[var(--bolt-shadow-accent-strong)]',
                 )}
               >
                 <div className="i-ph:plus-circle text-base" />
@@ -263,16 +289,22 @@ export const ProjectSwitcherDrawer = memo(({ open, onClose }: ProjectSwitcherDra
             {/* Project list */}
             <div className="flex-1 overflow-y-auto overscroll-contain">
               {projects.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-bolt-elements-textTertiary">
-                  <div className="i-ph:folder-open text-4xl mb-3 opacity-40" />
-                  <p className="text-sm">No projects yet</p>
-                  <p className="text-xs mt-1 opacity-60">Start a new project to begin</p>
+                <div className="flex flex-col items-center justify-center py-16 text-[var(--bolt-mobile-text-tertiary)]">
+                  <div className="i-ph:folder-open text-5xl mb-4 opacity-40" />
+                  <p className="text-sm font-medium">No projects yet</p>
+                  <p className="text-xs mt-1.5 opacity-60">Start a new project to begin</p>
                 </div>
               ) : (
                 <div className="pb-4">
                   {binDates(projects).map(({ category, items }) => (
                     <div key={category}>
-                      <div className="px-5 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-purple-300/30 sticky top-0 bg-[rgba(10,10,18,0.95)] backdrop-blur-sm z-1">
+                      <div
+                        className={classNames(
+                          'px-5 py-1.5 text-[10px] font-semibold uppercase tracking-wider',
+                          'text-[var(--bolt-mobile-text-tertiary)]',
+                          'sticky top-0 bg-[var(--bolt-mobile-surface-bg-elevated)] backdrop-blur-sm z-[1]',
+                        )}
+                      >
                         {category}
                       </div>
                       {(items as ProjectItem[]).map((item) => (
@@ -281,33 +313,42 @@ export const ProjectSwitcherDrawer = memo(({ open, onClose }: ProjectSwitcherDra
                           onClick={() => handleOpenProject(item)}
                           className={classNames(
                             'w-full text-left px-5 py-3 transition-colors group flex items-start gap-3',
-                            'hover:bg-[rgba(139,92,246,0.06)] active:bg-[rgba(139,92,246,0.1)]',
+                            'hover:bg-[var(--bolt-mobile-accent-faint)]',
+                            'active:bg-[var(--bolt-mobile-accent-subtle)]',
                           )}
                         >
-                          {/* Project icon */}
-                          <div className="w-8 h-8 rounded-lg bg-accent-500/10 dark:bg-purple-500/10 flex items-center justify-center shrink-0 mt-0.5">
-                            <div className="i-ph:code text-sm text-accent-500 dark:text-purple-400" />
+                          {/* Project icon container */}
+                          <div
+                            className={classNames(
+                              'w-9 h-9 rounded-[var(--bolt-radius-md)]',
+                              'bg-[var(--bolt-mobile-accent-faint)]',
+                              'flex items-center justify-center shrink-0 mt-0.5',
+                            )}
+                          >
+                            <div className="i-ph:code text-sm text-[var(--bolt-mobile-accent-text)]" />
                           </div>
 
                           {/* Info */}
                           <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium text-bolt-elements-textPrimary truncate">
+                            <div className="text-sm font-medium text-[var(--bolt-mobile-text-primary)] truncate">
                               {item.description || 'Untitled Project'}
                             </div>
                             <div className="flex items-center gap-2 mt-1">
-                              <span className="text-[10px] text-bolt-elements-textTertiary">
+                              <span className="text-[10px] text-[var(--bolt-mobile-text-tertiary)]">
                                 {formatTime(item.timestamp)}
                               </span>
                               {renderStatusBadge(item.status)}
                             </div>
                           </div>
 
-                          {/* Delete */}
+                          {/* Delete — visible on press (mobile) and hover (desktop) */}
                           <button
                             onClick={(e) => handleDeleteProject(e, item)}
                             className={classNames(
-                              'opacity-0 group-hover:opacity-100 p-1.5 rounded-lg shrink-0',
-                              'hover:bg-[rgba(248,113,113,0.1)] text-bolt-elements-textTertiary hover:text-red-400',
+                              'opacity-0 group-hover:opacity-100 active:opacity-100 group-active:opacity-100',
+                              'p-1.5 rounded-lg shrink-0',
+                              'text-[var(--bolt-mobile-text-tertiary)]',
+                              'hover:bg-[var(--bolt-mobile-error-muted)] hover:text-[var(--bolt-mobile-error)]',
                               'transition-all active:scale-95',
                             )}
                             title="Delete project"

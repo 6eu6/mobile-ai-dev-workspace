@@ -5,8 +5,8 @@ import type { GenerationStep } from '~/lib/stores/generationStatus';
 /**
  * GenerationStepTimeline
  *
- * Displays generation steps with a compact mobile-friendly timeline.
- * Supports current step, completed steps, and error step.
+ * Premium step timeline with design-token-driven colors.
+ * Dark developer-tool aesthetic with purple/violet accent system.
  *
  * Usage:
  *   <GenerationStepTimeline currentStep="creating-files" />
@@ -101,26 +101,27 @@ export const GenerationStepTimeline = memo(
           return (
             <div key={step.id} className="flex items-stretch">
               {/* Icon + connector column */}
-              <div className="flex flex-col items-center w-6 shrink-0">
-                {/* Step icon */}
+              <div className="flex w-6 shrink-0 flex-col items-center">
+                {/* Step icon — 20px circle */}
                 <div
                   className={classNames(
-                    'w-5 h-5 rounded-full flex items-center justify-center shrink-0 transition-all duration-300',
-                    isCompleted && 'bg-green-500/20 text-green-500 dark:text-green-400',
-                    isCurrent && 'bg-accent-500/20 dark:bg-purple-500/20 text-accent-500 dark:text-purple-400',
-                    isFailed && 'bg-red-500/20 text-red-500 dark:text-red-400',
-                    isPending && 'bg-bolt-elements-bg-depth-3/60 text-bolt-elements-textTertiary',
-                    isCurrent && 'ring-2 ring-accent-300/30 dark:ring-purple-400/20',
+                    'flex h-5 w-5 shrink-0 items-center justify-center rounded-full transition-all duration-300',
+                    isCompleted && 'bg-[var(--bolt-mobile-success-muted)] text-[var(--bolt-mobile-success)]',
+                    isCurrent &&
+                      'bg-[var(--bolt-mobile-accent-muted)] text-[var(--bolt-mobile-accent-text)] ring-2 ring-[var(--bolt-mobile-accent)]/20',
+                    isFailed && 'bg-[var(--bolt-mobile-error-muted)] text-[var(--bolt-mobile-error)]',
+                    isPending &&
+                      'bg-[var(--bolt-mobile-surface-bg)] text-[var(--bolt-mobile-text-tertiary)] border border-[var(--bolt-mobile-surface-border)]',
                   )}
                 >
                   {isCompleted ? (
-                    <div className="i-ph:check text-xs" />
+                    <div className="i-ph:check text-[10px]" />
                   ) : isFailed ? (
-                    <div className="i-ph:x text-xs" />
+                    <div className="i-ph:x text-[10px]" />
                   ) : isCurrent ? (
-                    <div className={classNames(step.icon, 'text-xs', isStuck && 'animate-pulse')} />
+                    <div className={classNames(step.icon, 'text-[10px]', isStuck && 'animate-pulse')} />
                   ) : (
-                    <div className={classNames(step.icon, 'text-xs opacity-50')} />
+                    <div className={classNames(step.icon, 'text-[10px] opacity-50')} />
                   )}
                 </div>
 
@@ -128,22 +129,22 @@ export const GenerationStepTimeline = memo(
                 {!isLast && (
                   <div
                     className={classNames(
-                      'w-px flex-1 min-h-[16px] transition-colors duration-300',
-                      isCompleted ? 'bg-green-500/40 dark:bg-green-400/30' : 'bg-bolt-elements-borderColor/40',
+                      'min-h-[16px] flex-1 w-px transition-colors duration-300',
+                      isCompleted ? 'bg-[var(--bolt-mobile-success)]/40' : 'bg-[var(--bolt-mobile-surface-border)]',
                     )}
                   />
                 )}
               </div>
 
               {/* Label column */}
-              <div className={classNames('pb-3 pl-2.5 flex-1 min-w-0', isLast && 'pb-0')}>
+              <div className={classNames('min-w-0 flex-1 pb-3 pl-2.5', isLast && 'pb-0')}>
                 <div
                   className={classNames(
                     'text-xs font-medium leading-tight transition-colors duration-300',
-                    isCompleted && 'text-green-600 dark:text-green-400',
-                    isCurrent && 'text-bolt-elements-textPrimary',
-                    isFailed && 'text-red-600 dark:text-red-400',
-                    isPending && 'text-bolt-elements-textTertiary',
+                    isCompleted && 'text-[var(--bolt-mobile-success)]',
+                    isCurrent && 'text-[var(--bolt-mobile-text-primary)]',
+                    isFailed && 'text-[var(--bolt-mobile-error)]',
+                    isPending && 'text-[var(--bolt-mobile-text-tertiary)]',
                   )}
                 >
                   {step.label}
@@ -151,19 +152,19 @@ export const GenerationStepTimeline = memo(
 
                 {/* Current file info */}
                 {isCurrent && currentFile && (
-                  <div className="text-[10px] text-bolt-elements-textTertiary font-mono mt-0.5 truncate">
+                  <div className="mt-0.5 truncate font-mono text-[10px] text-[var(--bolt-mobile-text-tertiary)]">
                     {currentFile.split('/').pop()}
                   </div>
                 )}
 
                 {/* Error message */}
                 {isFailed && errorMessage && (
-                  <div className="text-[10px] text-red-500/80 dark:text-red-400/80 mt-0.5 truncate">{errorMessage}</div>
+                  <div className="mt-0.5 truncate text-[10px] text-[var(--bolt-mobile-error)]/80">{errorMessage}</div>
                 )}
 
                 {/* Stuck indicator */}
                 {isCurrent && isStuck && (
-                  <div className="text-[10px] text-amber-500 dark:text-amber-400 mt-0.5 animate-pulse">
+                  <div className="mt-0.5 animate-pulse text-[10px] text-[var(--bolt-mobile-warning)]">
                     Seems stuck? Check your connection.
                   </div>
                 )}
@@ -174,7 +175,9 @@ export const GenerationStepTimeline = memo(
 
         {/* Elapsed time */}
         {elapsed !== undefined && elapsed > 3 && !isDone && !isError && (
-          <div className="text-[10px] text-bolt-elements-textTertiary font-mono mt-1 pl-8">{elapsed}s elapsed</div>
+          <div className="mt-1 pl-8 font-mono text-[10px] text-[var(--bolt-mobile-text-tertiary)]">
+            {elapsed}s elapsed
+          </div>
         )}
       </div>
     );
@@ -183,9 +186,8 @@ export const GenerationStepTimeline = memo(
 
 GenerationStepTimeline.displayName = 'GenerationStepTimeline';
 
-/** Compact inline timeline — just step dots with a progress bar */
+/** Compact inline timeline — step dots with a gradient progress bar */
 function CompactTimeline({
-  currentStep: _currentStep,
   currentIndex,
   isError,
   isDone,
@@ -214,27 +216,27 @@ function CompactTimeline({
   return (
     <div
       className={classNames(
-        'flex items-center gap-2.5 px-3 py-2 rounded-lg',
-        'bg-bolt-elements-bg-depth-2/60 border border-bolt-elements-borderColor/40',
+        'flex items-center gap-2.5 rounded-[var(--bolt-radius-lg)] border px-3 py-2',
+        'bg-[var(--bolt-mobile-surface-bg)] border-[var(--bolt-mobile-surface-border)]',
         'transition-all duration-300',
-        isError && 'border-red-500/30 bg-red-500/5',
-        isDone && 'border-green-500/30 bg-green-500/5',
+        isError && 'border-[var(--bolt-mobile-error)]/30 bg-[var(--bolt-mobile-error-muted)]',
+        isDone && 'border-[var(--bolt-mobile-success)]/30 bg-[var(--bolt-mobile-success-muted)]',
         className,
       )}
     >
       {/* Spinner / icon */}
       {!isDone && !isError && (
-        <div className="w-4 h-4 shrink-0">
-          <div className="w-4 h-4 rounded-full border-2 border-accent-200 dark:border-purple-700 border-t-accent-500 dark:border-t-purple-400 animate-spin" />
+        <div className="h-4 w-4 shrink-0">
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--bolt-mobile-accent-faint)] border-t-[var(--bolt-mobile-accent-text)]" />
         </div>
       )}
-      {isDone && <div className="i-ph:check-circle-fill text-green-500 dark:text-green-400 text-base shrink-0" />}
-      {isError && <div className="i-ph:warning-circle-fill text-red-500 dark:text-red-400 text-base shrink-0" />}
+      {isDone && <div className="i-ph:check-circle-fill text-base shrink-0 text-[var(--bolt-mobile-success)]" />}
+      {isError && <div className="i-ph:warning-circle-fill text-base shrink-0 text-[var(--bolt-mobile-error)]" />}
 
       {/* Content */}
-      <div className="flex-1 min-w-0">
+      <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-bolt-elements-textPrimary truncate">
+          <span className="truncate text-xs font-medium text-[var(--bolt-mobile-text-primary)]">
             {isStuck
               ? 'Stuck'
               : isError
@@ -244,7 +246,7 @@ function CompactTimeline({
                   : STEPS[Math.min(currentIndex, STEPS.length - 1)]?.label}
           </span>
           {currentFile && !isDone && !isError && (
-            <span className="text-[10px] text-bolt-elements-textTertiary font-mono truncate max-w-[100px]">
+            <span className="max-w-[100px] truncate font-mono text-[10px] text-[var(--bolt-mobile-text-tertiary)]">
               {currentFile.split('/').pop()}
             </span>
           )}
@@ -252,7 +254,7 @@ function CompactTimeline({
 
         {/* Progress bar */}
         {!isError && (
-          <div className="mt-1 h-[2px] rounded-full bg-bolt-elements-bg-depth-3/60 overflow-hidden">
+          <div className="mt-1 h-[2px] overflow-hidden rounded-full bg-[var(--bolt-mobile-surface-border)]">
             <div
               className="h-full rounded-full bg-gradient-to-r from-[var(--bolt-gradient-start)] to-[var(--bolt-gradient-end)] transition-all duration-700 ease-out"
               style={{ width: `${progressPercent}%` }}
@@ -262,17 +264,17 @@ function CompactTimeline({
       </div>
 
       {/* Step dots */}
-      <div className="flex items-center gap-1 shrink-0">
+      <div className="flex shrink-0 items-center gap-1">
         {STEP_ORDER.slice(0, -1).map((step, i) => (
           <div
             key={step}
             className={classNames(
-              'w-1.5 h-1.5 rounded-full transition-all duration-300',
+              'h-1.5 w-1.5 rounded-full transition-all duration-300',
               isDone || i < currentIndex
-                ? 'bg-green-500 dark:bg-green-400'
+                ? 'bg-[var(--bolt-mobile-success)]'
                 : i === currentIndex
-                  ? 'bg-accent-500 dark:bg-purple-400 scale-125'
-                  : 'bg-bolt-elements-bg-depth-3',
+                  ? 'scale-125 bg-[var(--bolt-mobile-accent-text)]'
+                  : 'bg-[var(--bolt-mobile-text-tertiary)]/30',
             )}
           />
         ))}
@@ -280,7 +282,7 @@ function CompactTimeline({
 
       {/* Elapsed */}
       {elapsed !== undefined && elapsed > 5 && !isDone && (
-        <span className="text-[10px] text-bolt-elements-textTertiary font-mono shrink-0">{elapsed}s</span>
+        <span className="shrink-0 font-mono text-[10px] text-[var(--bolt-mobile-text-tertiary)]">{elapsed}s</span>
       )}
     </div>
   );

@@ -20,17 +20,23 @@ export function Header() {
         'transition-all duration-300 ease-out',
         {
           'border-transparent bg-transparent': !chat.started,
-          'border-b border-bolt-elements-borderColor bg-bolt-elements-bg-depth-1/90 backdrop-blur-xl': chat.started,
+          'bg-[var(--bolt-mobile-surface-bg)] backdrop-blur-xl border-b border-[var(--bolt-mobile-surface-border)]':
+            chat.started,
         },
       )}
     >
       <div className="flex items-center gap-2 z-logo text-bolt-elements-textPrimary cursor-pointer group">
         <button
           onClick={handleMobileMenu}
-          className="sm:hidden p-1.5 -ml-1 rounded-lg text-bolt-elements-textSecondary hover:text-purple-300 hover:bg-[rgba(139,92,246,0.08)] transition-colors"
+          className={classNames(
+            'sm:hidden p-1.5 -ml-1 rounded-lg transition-colors',
+            'text-[var(--bolt-mobile-text-secondary)]',
+            'hover:bg-[var(--bolt-mobile-accent-faint)] hover:text-[var(--bolt-mobile-accent-text)]',
+            'active:bg-[var(--bolt-mobile-accent-faint)] active:text-[var(--bolt-mobile-accent-text)]',
+          )}
           aria-label="Open menu"
         >
-          <div className="i-ph:list text-xl text-bolt-elements-textSecondary" />
+          <div className="i-ph:sidebar-simple text-xl" />
         </button>
         <div className="i-ph:sidebar-simple-duotone text-xl opacity-60 group-hover:opacity-100 transition-opacity duration-200 hidden sm:block" />
         <a href="/" className="flex items-center">
@@ -48,7 +54,7 @@ export function Header() {
       </div>
       {chat.started && (
         <>
-          <span className="flex-1 px-3 sm:px-4 truncate text-center text-xs sm:text-sm font-medium text-bolt-elements-textSecondary">
+          <span className="flex-1 px-3 sm:px-4 truncate text-center text-xs sm:text-sm font-medium text-[var(--bolt-mobile-text-secondary)]">
             <ClientOnly>{() => <ChatDescription />}</ClientOnly>
           </span>
           <ClientOnly>

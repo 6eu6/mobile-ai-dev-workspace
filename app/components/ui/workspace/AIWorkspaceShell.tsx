@@ -4,8 +4,8 @@ import { classNames } from '~/utils/classNames';
 /**
  * WorkspaceShell
  *
- * Provides the consistent mobile page background, prevents horizontal overflow,
- * handles safe-area spacing, and defines the visual shell for all workspace views.
+ * Provides the consistent mobile page background with a refined
+ * grid pattern and radial glow. Premium dark developer aesthetic.
  *
  * Usage:
  *   <WorkspaceShell>
@@ -36,23 +36,30 @@ export const WorkspaceShell = memo(
           className,
         )}
       >
-        {/* Subtle background pattern — grid + noise */}
+        {/* Subtle background pattern — grid + radial glow */}
         {showBackgroundPattern && (
           <div className="pointer-events-none fixed inset-0 z-0" aria-hidden="true">
-            {/* Grid pattern */}
+            {/* Grid pattern — purple tinted, subtle */}
             <div
-              className="absolute inset-0 opacity-[0.025] dark:opacity-[0.04]"
+              className="absolute inset-0 opacity-[0.02] dark:opacity-[0.035]"
               style={{
                 backgroundImage:
-                  'linear-gradient(rgba(139, 92, 246, 0.3) 1px, transparent 1px), linear-gradient(90deg, rgba(139, 92, 246, 0.3) 1px, transparent 1px)',
-                backgroundSize: '48px 48px',
+                  'linear-gradient(rgba(139, 92, 246, 0.4) 1px, transparent 1px), linear-gradient(90deg, rgba(139, 92, 246, 0.4) 1px, transparent 1px)',
+                backgroundSize: '40px 40px',
               }}
             />
-            {/* Radial glow */}
+            {/* Radial glow — top center */}
             <div
               className="absolute inset-0"
               style={{
-                background: 'radial-gradient(ellipse 60% 40% at 50% 0%, var(--bolt-glow-color), transparent)',
+                background: 'radial-gradient(ellipse 70% 50% at 50% 0%, var(--bolt-glow-color), transparent 70%)',
+              }}
+            />
+            {/* Secondary subtle vignette */}
+            <div
+              className="absolute inset-0"
+              style={{
+                background: 'radial-gradient(ellipse 40% 30% at 50% 100%, rgba(139, 92, 246, 0.03), transparent)',
               }}
             />
           </div>
