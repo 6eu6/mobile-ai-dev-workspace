@@ -24,7 +24,16 @@ if (!import.meta.env.SSR) {
     Promise.resolve()
       .then(() => {
         return WebContainer.boot({
-          coep: 'credentialless',
+          /*
+           * The boot COEP mode MUST match the COEP header the page is served
+           * with (Cross-Origin-Embedder-Policy: require-corp — see vite/Pages
+           * config). It was previously 'credentialless', which (a) mismatched
+           * the require-corp page header and (b) is Chromium-only — iOS Safari
+           * does not support credentialless at all, so WebContainer never
+           * finished booting on iPhone and file actions hung ("Seems stuck").
+           * 'require-corp' is supported across Chromium, Firefox and Safari.
+           */
+          coep: 'require-corp',
           workdirName: WORK_DIR_NAME,
           forwardPreviewErrors: true, // Enable error forwarding from iframes
         });
