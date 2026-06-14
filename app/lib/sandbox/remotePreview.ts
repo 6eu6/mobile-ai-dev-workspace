@@ -93,21 +93,26 @@ export async function ensureRemotePreview(): Promise<void> {
     return;
   }
 
-  const files = collectFiles();
-
-  if (Object.keys(files).length === 0) {
+  if (Object.keys(collectFiles()).length === 0) {
     return;
-  }
-
-  const sig = signature(files);
-
-  if (started && sig === lastSignature) {
-    return; // nothing changed
   }
 
   inflight = true;
 
   try {
+    /*
+     * The model's stream can finish before the workbench has finished writing
+     * every file action, so wait until the file set stops changing before we
+     * upload — otherwise we'd push an incomplete project (no package.json) and
+     * the dev server would never start.
+     */
+    const files = await waitForFilesStable();
+    const sig = signature(files);
+
+    if (started && sig === lastSignature) {
+      return; // nothing changed
+    }
+
     if (!sandboxId) {
       remotePreviewStatus.set({ state: 'creating' });
 
@@ -140,6 +145,43 @@ export async function ensureRemotePreview(): Promise<void> {
   } finally {
     inflight = false;
   }
+}
+
+/**
+ * Wait until the workbench file set stops changing (file actions finished
+ * applying after the model stream ended). Returns the final, complete file map.
+ */
+async function waitForFilesStable(): Promise<Record<string, string>> {
+  let previous = '';
+  let stableCount = 0;
+  let files = collectFiles();
+
+  for (let i = 0; i < 30; i++) {
+    files = collectFiles();
+
+    const sig = signature(files);
+
+    if (sig === previous) {
+      stableCount += 1;
+
+      // Unchanged for ~3 consecutive checks and a package.json exists → ready.
+      if (stableCount >= 3 && Object.keys(files).some((p) => p === 'package.json')) {
+        break;
+      }
+
+      // Or simply stable for longer (static project without package.json).
+      if (stableCount >= 5) {
+        break;
+      }
+    } else {
+      stableCount = 0;
+      previous = sig;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+
+  return files;
 }
 
 /** Poll the cloud dev server until it responds (or give up after ~160s). */

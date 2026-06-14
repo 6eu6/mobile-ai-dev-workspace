@@ -29,7 +29,7 @@ export async function loader({ context }: LoaderFunctionArgs) {
 }
 
 interface SandboxRequest {
-  op: 'create' | 'files' | 'start' | 'status' | 'destroy';
+  op: 'create' | 'files' | 'start' | 'status' | 'logs' | 'destroy';
   id?: string;
   files?: Record<string, string>;
   install?: string;
@@ -90,11 +90,26 @@ export async function action({ context, request }: ActionFunctionArgs) {
          * the dev server in the background so this request returns immediately.
          */
         await sandbox.setTimeout(SANDBOX_TIMEOUT_MS);
-        await sandbox.commands.run(`cd ${PROJECT_DIR} && ${install} && ${dev}`, { background: true });
+        await sandbox.commands.run(`cd ${PROJECT_DIR} && (${install} && ${dev}) > /tmp/dev.log 2>&1`, {
+          background: true,
+        });
 
         const host = sandbox.getHost(port);
 
         return json({ url: `https://${host}`, port });
+      }
+
+      case 'logs': {
+        if (!body.id) {
+          return json({ error: 'id is required' }, { status: 400 });
+        }
+
+        const sandbox = await Sandbox.connect(body.id, { apiKey });
+        const out = await sandbox.commands
+          .run('tail -n 60 /tmp/dev.log 2>/dev/null || echo "(no logs yet)"', { timeoutMs: 8000 })
+          .catch(() => ({ stdout: '(logs unavailable)' }) as { stdout: string });
+
+        return json({ logs: out.stdout || '' });
       }
 
       case 'status': {
