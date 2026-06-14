@@ -170,3 +170,27 @@
 .animation-delay-700 {
   animation-delay: 700ms;
 }
+
+/* Workspace UI Kit animations */
+
+/* ThinkingBubble dot wave */
+@keyframes thinkingBubbleDot {
+  0%, 60%, 100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+/* AgentStatusPill dot wave */
+@keyframes agentPillDot {
+  0%, 60%, 100% {
+    opacity: 0.2;
+  }
+  30% {
+    opacity: 1;
+  }
+}
