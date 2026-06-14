@@ -82,8 +82,12 @@ export const MobileActionDock = memo(() => {
             <button
               key={item.id}
               onClick={() => handleTabChange(item.id)}
-              className="relative flex flex-col items-center justify-center min-w-[48px] min-h-[44px] rounded-xl outline-none active:scale-[0.9]"
+              className="relative flex flex-col items-center justify-center flex-1 min-w-[48px] min-h-[48px] rounded-xl outline-none active:scale-[0.9]"
               style={{
+                background: 'transparent',
+                WebkitAppearance: 'none',
+                appearance: 'none',
+                border: 'none',
                 transition: `transform var(--bolt-duration-fast) var(--bolt-ease-default)`,
                 color: isActive ? 'var(--bolt-mobile-text-accent)' : 'var(--bolt-mobile-text-tertiary)',
               }}
@@ -106,7 +110,7 @@ export const MobileActionDock = memo(() => {
               {/* Icon */}
               <div className="relative z-1">
                 <div
-                  className={`${isActive ? item.iconActive : item.icon} text-[18px]`}
+                  className={`${isActive ? item.iconActive : item.icon} text-[20px]`}
                   style={{
                     transition: `all var(--bolt-duration-fast) var(--bolt-ease-default)`,
                     ...(isActive && {
@@ -118,7 +122,7 @@ export const MobileActionDock = memo(() => {
 
               {/* Label */}
               <span
-                className="relative z-1 text-[9px] mt-0.5 leading-tight font-medium"
+                className="relative z-1 text-[10px] mt-0.5 leading-tight font-medium tracking-tight"
                 style={{
                   color: isActive ? 'var(--bolt-mobile-accent-text)' : 'var(--bolt-mobile-text-tertiary)',
                   transition: `color var(--bolt-duration-fast) var(--bolt-ease-default)`,

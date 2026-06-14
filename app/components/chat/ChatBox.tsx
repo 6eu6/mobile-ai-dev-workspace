@@ -349,12 +349,13 @@ export const ChatBox: React.FC<ChatBoxProps> = (props) => {
           </div>
         </div>
 
-        {/* Mobile-only secondary row */}
-        <div className="flex sm:hidden items-center gap-0.5 px-2 pb-2 pt-0 border-t border-[rgba(139,92,246,0.08)] mt-0.5">
-          <ColorSchemeDialog designScheme={props.designScheme} setDesignScheme={props.setDesignScheme} />
-          <McpTools />
-          <SupabaseConnection />
-        </div>
+        {/*
+          Mobile secondary row removed: it surfaced advanced/desktop-only
+          integrations (design scheme, MCP tools, Supabase) that cluttered the
+          mobile composer — and Supabase rendered as an icon-less empty button.
+          These remain available inline on desktop (rows above). Keeping the
+          mobile composer a focused command center.
+        */}
 
         {props.input.length > 3 && (
           <div className="hidden sm:flex items-center justify-end px-3 pb-2">

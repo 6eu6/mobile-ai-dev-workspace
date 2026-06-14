@@ -40,15 +40,6 @@ export const MobileShell = memo(() => {
     return () => mq.removeEventListener('change', handler);
   }, []);
 
-  const handleExportZip = useCallback(() => {
-    workbenchStore.downloadZip();
-  }, []);
-
-  const handleToggleTerminal = useCallback(() => {
-    const current = workbenchStore.showTerminal.get();
-    workbenchStore.toggleTerminal(!current);
-  }, []);
-
   const isSettingsTab = activeTab === 'settings';
   const isProjectsTab = activeTab === 'projects';
 
@@ -84,46 +75,11 @@ export const MobileShell = memo(() => {
       {/* Bottom spacer: pushes content above the dock */}
       <div className="sm:hidden shrink-0" style={{ height: 'var(--bolt-mobile-dock-height)' }} />
 
-      {/* Workbench floating action bar */}
-      {showWorkbench && (
-        <div className="fixed left-2 right-2 z-40 sm:hidden">
-          <div
-            className="flex items-center gap-2 p-2 rounded-xl backdrop-blur-xl"
-            style={{
-              background: 'var(--bolt-mobile-surface-bg-elevated)',
-              boxShadow: 'var(--bolt-shadow-md)',
-              border: '1px solid var(--bolt-mobile-surface-border)',
-            }}
-          >
-            <button
-              onClick={handleToggleTerminal}
-              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium active:scale-[0.95]"
-              style={{
-                background: 'var(--bolt-mobile-accent-muted)',
-                color: 'var(--bolt-mobile-accent-text)',
-                border: '1px solid var(--bolt-mobile-surface-border)',
-                transition: 'transform var(--bolt-duration-fast) var(--bolt-ease-default)',
-              }}
-            >
-              <div className="i-ph:terminal-window text-sm" />
-              Terminal
-            </button>
-            <button
-              onClick={handleExportZip}
-              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium active:scale-[0.95]"
-              style={{
-                background: 'var(--bolt-mobile-accent-faint)',
-                color: 'var(--bolt-mobile-text-secondary)',
-                border: '1px solid var(--bolt-mobile-surface-border)',
-                transition: 'transform var(--bolt-duration-fast) var(--bolt-ease-default)',
-              }}
-            >
-              <div className="i-ph:download-simple text-sm" />
-              Export ZIP
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Note: the previous floating Terminal/Export action bar was removed —
+          it duplicated the dock's Terminal tab and the workbench toolbar's
+          Export button, and (being position:fixed with no vertical anchor)
+          rendered over the workbench header. Both actions remain available in
+          their canonical locations. */}
 
       <div className="sm:hidden">
         <ControlPanel open={mobileSettingsOpen} onClose={handleCloseSettings} />
