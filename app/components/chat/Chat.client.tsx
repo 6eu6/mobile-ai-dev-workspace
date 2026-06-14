@@ -19,6 +19,7 @@ import type { ProviderInfo } from '~/types/model';
 import { useSearchParams } from '@remix-run/react';
 import { createSampler } from '~/utils/sampler';
 import { getTemplates, selectStarterTemplate } from '~/utils/selectStarterTemplate';
+import { isMemoryConstrainedDevice } from '~/lib/sandbox/remoteSandbox';
 import { logStore } from '~/lib/stores/logs';
 import { streamingState } from '~/lib/stores/streaming';
 import { filesToArtifacts } from '~/utils/fileUtils';
@@ -500,7 +501,12 @@ export const ChatImpl = memo(
       if (!chatStarted) {
         setFakeLoading(true);
 
-        if (autoSelectTemplate) {
+        /*
+         * Skip the heavy starter-template clone on mobile: there we generate the
+         * project directly and run it in the cloud sandbox (cleaner, no failing
+         * in-browser install). Templates remain available on desktop.
+         */
+        if (autoSelectTemplate && !isMemoryConstrainedDevice()) {
           const { template, title } = await selectStarterTemplate({
             message: finalMessageContent,
             model,

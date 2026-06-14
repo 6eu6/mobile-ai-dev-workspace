@@ -6,8 +6,19 @@ import { createScopedLogger } from '~/utils/logger';
 import { unreachable } from '~/utils/unreachable';
 import type { ActionCallbackData } from './message-parser';
 import type { BoltShell } from '~/utils/shell';
+import { isMemoryConstrainedDevice, getRemoteAvailabilitySync } from '~/lib/sandbox/remoteSandbox';
 
 const logger = createScopedLogger('ActionRunner');
+
+/**
+ * On memory-constrained devices (mobile Safari) with a configured cloud sandbox
+ * (E2B), the in-browser WebContainer is used only to author files — command
+ * execution (install / dev server / build) is offloaded to the server so it
+ * doesn't fail locally ("vite not found") or show an empty in-browser preview.
+ */
+function shouldOffloadExecution(): boolean {
+  return isMemoryConstrainedDevice() && getRemoteAvailabilitySync();
+}
 
 export type ActionStatus = 'pending' | 'running' | 'complete' | 'aborted' | 'failed';
 
@@ -153,6 +164,14 @@ export class ActionRunner {
 
   async #executeAction(actionId: string, isStreaming: boolean = false) {
     const action = this.actions.get()[actionId];
+
+    // Offload command execution to the cloud sandbox on mobile (files still run locally).
+    if ((action.type === 'shell' || action.type === 'start' || action.type === 'build') && shouldOffloadExecution()) {
+      logger.info(`[${action.type}] offloaded to cloud sandbox; skipping in-browser execution`);
+      this.#updateAction(actionId, { status: 'complete' });
+
+      return;
+    }
 
     this.#updateAction(actionId, { status: 'running' });
 

@@ -57,6 +57,19 @@ export async function isRemoteSandboxAvailable(): Promise<boolean> {
   return availabilityCache;
 }
 
+/** Synchronous read of the cached availability (false until first async check). */
+export function getRemoteAvailabilitySync(): boolean {
+  return availabilityCache === true;
+}
+
+/*
+ * Kick off discovery as soon as this module loads in the browser so callers that
+ * need a synchronous answer (e.g. the action runner) have it ready quickly.
+ */
+if (typeof window !== 'undefined') {
+  void isRemoteSandboxAvailable();
+}
+
 async function call<T>(payload: Record<string, unknown>): Promise<T> {
   const res = await fetch(BASE, {
     method: 'POST',
