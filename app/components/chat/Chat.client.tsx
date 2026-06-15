@@ -299,6 +299,40 @@ export const ChatImpl = memo(
       }
     }, [files, isLoading, messages, takeDebouncedSnapshot]);
 
+    /*
+     * Persistence fix: the effect above only saves WHILE streaming, but file
+     * actions (and registerFile on mobile) often finish AFTER streaming ends, so
+     * the final/complete file set was never snapshotted — files vanished on
+     * re-entry. Save a final snapshot when generation completes, plus a delayed
+     * one to catch files written just after the stream closed.
+     */
+    const prevLoadingRef = useRef(isLoading);
+    useEffect(() => {
+      const justFinished = prevLoadingRef.current && !isLoading;
+      prevLoadingRef.current = isLoading;
+
+      if (!justFinished) {
+        return undefined;
+      }
+
+      const saveFinal = () => {
+        const finalFiles = workbenchStore.files.get();
+        const lastMessageId = messages.length > 0 ? messages[messages.length - 1].id : '';
+
+        if (lastMessageId && Object.keys(finalFiles).length > 0) {
+          takeDebouncedSnapshot(lastMessageId, finalFiles).catch((err) => {
+            console.error('Final snapshot save failed:', err);
+          });
+        }
+      };
+
+      saveFinal();
+
+      const t = setTimeout(saveFinal, 3000);
+
+      return () => clearTimeout(t);
+    }, [isLoading, messages, takeDebouncedSnapshot]);
+
     const scrollTextArea = () => {
       const textarea = textareaRef.current;
 

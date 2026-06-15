@@ -120,6 +120,20 @@ export function useChatHistory() {
           // A) Restore UX: Step - restoring chat
           setRestoreStep('restoring-chat');
 
+          /*
+           * Guarantee the generated files reappear on re-entry: set them into the
+           * workbench as soon as a snapshot exists, independent of the message
+           * index branching below (which only restores files for some shapes and
+           * left single-generation chats with an empty file tree).
+           */
+          if (hasSnapshot) {
+            try {
+              workbenchStore.files.set(snapshot.files);
+            } catch (e) {
+              console.error('Failed to restore snapshot files into workbench:', e);
+            }
+          }
+
           if (hasMessages) {
             const validSnapshot = snapshot || { chatIndex: '', files: {} };
             const summary = validSnapshot.summary;
