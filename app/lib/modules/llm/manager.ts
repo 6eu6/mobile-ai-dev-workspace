@@ -201,6 +201,16 @@ export class LLMManager {
   }
 
   getDefaultProvider(): BaseProvider {
+    /*
+     * Prefer OpenRouter — it's the BYOK provider Palmkit guides users to, so the
+     * entered/synced API key matches the default selection out of the box.
+     */
+    const preferred = this._providers.get('OpenRouter');
+
+    if (preferred) {
+      return preferred;
+    }
+
     const firstProvider = this._providers.values().next().value;
 
     if (!firstProvider) {
