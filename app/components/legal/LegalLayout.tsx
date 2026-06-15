@@ -17,12 +17,7 @@ export function LegalLayout({ title, updated, children }: { title: string; updat
         }}
       >
         <Link to="/" className="flex items-center gap-2" aria-label="Palmkit home">
-          <span
-            className="flex items-center justify-center w-7 h-7 rounded-[9px] text-white"
-            style={{ background: 'linear-gradient(135deg, #8b5cf6 0%, #6234bb 100%)' }}
-          >
-            <span className="i-ph:lightning-fill text-base" />
-          </span>
+          <img src="/palmkit-icon.jpg" alt="Palmkit" className="w-7 h-7 rounded-[9px] object-cover" />
           <span className="text-base font-semibold tracking-tight">
             <span>Palm</span>
             <span style={{ color: 'var(--bolt-mobile-accent-text, #c4b5fd)' }}>kit</span>
