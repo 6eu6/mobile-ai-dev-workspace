@@ -1,5 +1,5 @@
 /**
- * Pocketforge Sandbox Server
+ * Palmkit Sandbox Server
  *
  * Runs AI-generated projects server-side (install + dev server) and proxies a
  * live preview, so a full preview works on memory-constrained devices

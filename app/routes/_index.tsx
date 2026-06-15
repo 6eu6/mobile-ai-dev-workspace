@@ -7,10 +7,10 @@ import BackgroundRays from '~/components/ui/BackgroundRays';
 
 export const meta: MetaFunction = () => {
   return [
-    { title: 'Pocketforge' },
+    { title: 'Palmkit' },
     {
       name: 'description',
-      content: 'Pocketforge — build, preview and export AI-generated web apps right from your phone.',
+      content: 'Palmkit — build, preview and export AI-generated web apps right from your phone.',
     },
   ];
 };

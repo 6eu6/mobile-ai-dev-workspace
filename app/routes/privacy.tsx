@@ -2,16 +2,16 @@ import type { MetaFunction } from '@remix-run/cloudflare';
 import { LegalLayout, LegalSection } from '~/components/legal/LegalLayout';
 
 export const meta: MetaFunction = () => [
-  { title: 'Privacy Policy — Pocketforge' },
-  { name: 'description', content: 'How Pocketforge handles your data.' },
+  { title: 'Privacy Policy — Palmkit' },
+  { name: 'description', content: 'How Palmkit handles your data.' },
 ];
 
 export default function Privacy() {
   return (
     <LegalLayout title="Privacy Policy" updated="June 15, 2026">
       <p>
-        This Privacy Policy explains what data Pocketforge handles and how. We aim to collect as little as possible and
-        to keep your work and credentials under your control.
+        This Privacy Policy explains what data Palmkit handles and how. We aim to collect as little as possible and to
+        keep your work and credentials under your control.
       </p>
 
       <LegalSection heading="1. Data you provide">
@@ -35,7 +35,7 @@ export default function Privacy() {
       </LegalSection>
 
       <LegalSection heading="2. Third-party services">
-        <p>When you use Pocketforge, data flows to the services that make it work:</p>
+        <p>When you use Palmkit, data flows to the services that make it work:</p>
         <ul className="list-disc pl-5 flex flex-col gap-1.5">
           <li>
             <strong className="text-bolt-elements-textPrimary">Model providers (e.g. OpenRouter):</strong> your prompts
@@ -90,7 +90,7 @@ export default function Privacy() {
       <LegalSection heading="7. Contact">
         <p>
           Questions about privacy? Contact us at{' '}
-          <span style={{ color: 'var(--bolt-mobile-accent-text, #c4b5fd)' }}>support@pocketforge.app</span>.
+          <span style={{ color: 'var(--bolt-mobile-accent-text, #c4b5fd)' }}>support@palmkit.app</span>.
         </p>
       </LegalSection>
     </LegalLayout>

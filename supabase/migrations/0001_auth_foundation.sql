@@ -1,4 +1,4 @@
--- Pocketforge auth foundation
+-- Palmkit auth foundation
 -- Run this in the Supabase SQL editor (or via `supabase db push` / MCP apply).
 -- Creates user profiles and encrypted-API-key storage with Row Level Security.
 

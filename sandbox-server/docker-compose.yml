@@ -16,7 +16,7 @@ services:
       - SANDBOX_API_TOKEN=${SANDBOX_API_TOKEN}
       - SANDBOX_TTL_MS=900000
       - SANDBOX_MAX=8
-      - SANDBOX_IMAGE=pocketforge-sandbox
+      - SANDBOX_IMAGE=palmkit-sandbox
       - SANDBOX_MEMORY=1g
       - SANDBOX_CPUS=1.0
     volumes:
@@ -28,6 +28,6 @@ services:
     build:
       context: .
       dockerfile: sandbox.Dockerfile
-    image: pocketforge-sandbox
+    image: palmkit-sandbox
     command: ['true']
     restart: 'no'

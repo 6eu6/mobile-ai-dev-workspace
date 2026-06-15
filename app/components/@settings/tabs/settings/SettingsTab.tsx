@@ -251,7 +251,7 @@ export default function SettingsTab() {
           </a>
 
           <div className="flex items-center justify-between px-2.5 pt-1">
-            <span className="text-xs text-bolt-elements-textSecondary">Pocketforge</span>
+            <span className="text-xs text-bolt-elements-textSecondary">Palmkit</span>
             <span className="text-xs text-bolt-elements-textTertiary">v1.0</span>
           </div>
         </div>

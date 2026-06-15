@@ -380,7 +380,7 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                     opacity: 0,
                   }}
                 >
-                  Describe it. Pocketforge generates, previews, and exports — right from your phone.
+                  Describe it. Palmkit generates, previews, and exports — right from your phone.
                 </p>
               </div>
             )}

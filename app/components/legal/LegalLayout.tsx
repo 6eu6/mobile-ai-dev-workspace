@@ -2,7 +2,7 @@ import { Link } from '@remix-run/react';
 import type { ReactNode } from 'react';
 
 /**
- * Shared layout for legal pages (Terms, Privacy) — Pocketforge dark/violet
+ * Shared layout for legal pages (Terms, Privacy) — Palmkit dark/violet
  * identity, mobile-first, clean readable typography.
  */
 export function LegalLayout({ title, updated, children }: { title: string; updated: string; children: ReactNode }) {
@@ -16,7 +16,7 @@ export function LegalLayout({ title, updated, children }: { title: string; updat
           borderColor: 'var(--bolt-mobile-surface-border, rgba(139,92,246,0.14))',
         }}
       >
-        <Link to="/" className="flex items-center gap-2" aria-label="Pocketforge home">
+        <Link to="/" className="flex items-center gap-2" aria-label="Palmkit home">
           <span
             className="flex items-center justify-center w-7 h-7 rounded-[9px] text-white"
             style={{ background: 'linear-gradient(135deg, #8b5cf6 0%, #6234bb 100%)' }}
@@ -24,8 +24,8 @@ export function LegalLayout({ title, updated, children }: { title: string; updat
             <span className="i-ph:lightning-fill text-base" />
           </span>
           <span className="text-base font-semibold tracking-tight">
-            <span>Pocket</span>
-            <span style={{ color: 'var(--bolt-mobile-accent-text, #c4b5fd)' }}>forge</span>
+            <span>Palm</span>
+            <span style={{ color: 'var(--bolt-mobile-accent-text, #c4b5fd)' }}>kit</span>
           </span>
         </Link>
         <Link
@@ -66,7 +66,7 @@ export function LegalLayout({ title, updated, children }: { title: string; updat
           style={{ borderColor: 'var(--bolt-mobile-surface-border, rgba(139,92,246,0.12))' }}
         >
           <p>
-            Pocketforge is an independent project built on top of the MIT-licensed{' '}
+            Palmkit is an independent project built on top of the MIT-licensed{' '}
             <a
               href="https://github.com/stackblitz-labs/bolt.diy"
               className="underline"

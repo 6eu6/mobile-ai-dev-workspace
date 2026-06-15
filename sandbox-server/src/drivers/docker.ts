@@ -11,7 +11,7 @@ import type { SandboxDriver, SandboxHandle, StartOptions } from './types.js';
 
 const docker = new Docker(); // talks to /var/run/docker.sock
 
-const IMAGE = process.env.SANDBOX_IMAGE || 'pocketforge-sandbox';
+const IMAGE = process.env.SANDBOX_IMAGE || 'palmkit-sandbox';
 const MEMORY = process.env.SANDBOX_MEMORY || '1g';
 const CPUS = parseFloat(process.env.SANDBOX_CPUS || '1.0');
 

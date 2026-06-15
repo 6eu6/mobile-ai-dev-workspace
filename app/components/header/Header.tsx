@@ -40,7 +40,7 @@ export function Header() {
           <div className="i-ph:list text-xl" />
         </button>
         <div className="i-ph:sidebar-simple-duotone text-xl opacity-60 group-hover:opacity-100 transition-opacity duration-200 hidden sm:block" />
-        <a href="/" className="flex items-center gap-2" aria-label="Pocketforge home">
+        <a href="/" className="flex items-center gap-2" aria-label="Palmkit home">
           {/* Brand mark: lightning glyph in a violet gradient chip */}
           <span
             className="flex items-center justify-center w-7 h-7 rounded-[9px] text-white transition-transform duration-200 group-hover:scale-105"
@@ -53,8 +53,8 @@ export function Header() {
           </span>
           {/* Wordmark */}
           <span className="text-[17px] sm:text-lg font-semibold tracking-tight leading-none select-none">
-            <span className="text-[var(--bolt-mobile-text-primary)]">Pocket</span>
-            <span className="text-[var(--bolt-mobile-accent-text)]">forge</span>
+            <span className="text-[var(--bolt-mobile-text-primary)]">Palm</span>
+            <span className="text-[var(--bolt-mobile-accent-text)]">kit</span>
           </span>
         </a>
       </div>

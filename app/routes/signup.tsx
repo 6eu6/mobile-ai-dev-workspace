@@ -3,7 +3,7 @@ import { Form, Link, useActionData, useNavigation } from '@remix-run/react';
 import { AuthButton, AuthInput, AuthLayout } from '~/components/auth/AuthLayout';
 import { getAuthedUser, getSupabaseServerClient } from '~/lib/auth/supabase.server';
 
-export const meta: MetaFunction = () => [{ title: 'Sign up — Pocketforge' }];
+export const meta: MetaFunction = () => [{ title: 'Sign up — Palmkit' }];
 
 export async function loader({ request, context }: LoaderFunctionArgs) {
   const { user, headers } = await getAuthedUser(request, context);
