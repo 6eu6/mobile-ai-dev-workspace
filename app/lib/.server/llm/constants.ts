@@ -43,8 +43,13 @@ export function isReasoningModel(modelName: string): boolean {
   return result;
 }
 
-// limits the number of model responses that can be returned in a single request
-export const MAX_RESPONSE_SEGMENTS = 2;
+/*
+ * Limits the number of model responses (auto-continue segments) in a single
+ * request. Raised from 2 → 8: models cap their output (finishReason 'length')
+ * mid-file on large apps; with only 2 segments generation stopped and the user
+ * had to type "continue". 8 segments lets it auto-continue to completion.
+ */
+export const MAX_RESPONSE_SEGMENTS = 8;
 
 export interface File {
   type: 'file';
