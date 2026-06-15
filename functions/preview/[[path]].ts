@@ -82,6 +82,14 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   headers.set('Cross-Origin-Resource-Policy', 'same-origin');
   headers.set('Cross-Origin-Embedder-Policy', 'require-corp');
 
+  // Statuses that MUST NOT carry a body — returning one throws (→ Cloudflare 502).
+  // Vite serves 304 for cached assets, so this is hit constantly.
+  const nullBody = upstream.status === 101 || upstream.status === 204 || upstream.status === 205 || upstream.status === 304;
+
+  if (nullBody) {
+    return new Response(null, { status: upstream.status, headers });
+  }
+
   const contentType = upstream.headers.get('content-type') || '';
 
   // Inject the inspector bridge into HTML so element selection works in-iframe.
