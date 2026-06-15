@@ -6,7 +6,8 @@ import { ThemeSwitch } from '~/components/ui/ThemeSwitch';
 import { ControlPanel } from '~/components/@settings/core/ControlPanel';
 import { SettingsButton, HelpButton } from '~/components/ui/SettingsButton';
 import { Button } from '~/components/ui/Button';
-import { db, deleteById, getAll, chatId, type ChatHistoryItem, useChatHistory } from '~/lib/persistence';
+import { db, deleteById, getAll, getMessages, chatId, type ChatHistoryItem, useChatHistory } from '~/lib/persistence';
+import { deleteAccountProject } from '~/lib/persistence/accountSync';
 import { cubicEasingFn } from '~/utils/easings';
 import { HistoryItem } from './HistoryItem';
 import { binDates } from './date-binning';
@@ -101,6 +102,17 @@ export const Menu = () => {
         console.log('Removed snapshot for chat:', id);
       } catch (snapshotError) {
         console.error(`Error deleting snapshot for chat ${id}:`, snapshotError);
+      }
+
+      // Remove the account-synced copy too (best-effort) so it isn't re-pulled.
+      try {
+        const item = await getMessages(db, id);
+
+        if (item?.urlId) {
+          await deleteAccountProject(item.urlId);
+        }
+      } catch (accountError) {
+        console.error('Failed to delete account project copy:', accountError);
       }
 
       // Delete the chat from the database

@@ -1,10 +1,12 @@
 import { useLoaderData, useNavigate, useSearchParams } from '@remix-run/react';
 import { useState, useEffect, useCallback } from 'react';
+import { useStore } from '@nanostores/react';
 import { atom } from 'nanostores';
 import { generateId, type JSONValue, type Message } from 'ai';
 import { toast } from 'react-toastify';
 import { workbenchStore } from '~/lib/stores/workbench';
 import { logStore } from '~/lib/stores/logs';
+import { authUserStore } from '~/lib/stores/auth';
 import { setRestoreStep, isRestoring } from '~/lib/stores/generationStatus';
 import {
   getMessages,
@@ -18,6 +20,7 @@ import {
   setSnapshot,
   type IChatMetadata,
 } from './db';
+import { pushProjectDebounced, seedChatFromAccount, syncAllFromAccount } from './accountSync';
 import type { FileMap } from '~/lib/stores/files';
 import type { Snapshot } from './types';
 import { webcontainer } from '~/lib/webcontainer';
@@ -85,6 +88,17 @@ export function useChatHistory() {
   const [initialMessages, setInitialMessages] = useState<Message[]>([]);
   const [ready, setReady] = useState<boolean>(false);
   const [urlId, setUrlId] = useState<string | undefined>();
+  const accountUser = useStore(authUserStore);
+
+  /*
+   * On sign-in, pull the user's projects from the account into the local store
+   * so the chat list reflects work created on other devices.
+   */
+  useEffect(() => {
+    if (db && accountUser) {
+      syncAllFromAccount(db).catch(() => undefined);
+    }
+  }, [accountUser?.id]);
 
   useEffect(() => {
     if (!db) {
@@ -104,7 +118,9 @@ export function useChatHistory() {
       isRestoring.set(true);
       setRestoreStep('loading-messages');
 
-      Promise.all([getMessages(db, mixedId), getSnapshot(db, mixedId)])
+      seedChatFromAccount(db, mixedId)
+        .catch(() => false)
+        .then(() => Promise.all([getMessages(db, mixedId), getSnapshot(db, mixedId)]))
         .then(async ([storedMessages, snapshot]) => {
           const hasMessages = storedMessages && storedMessages.messages.length > 0;
           const hasSnapshot = snapshot && snapshot.files && Object.keys(snapshot.files).length > 0;
@@ -523,6 +539,19 @@ ${value.content}
           undefined,
           chatMetadata.get(),
         );
+
+        // Mirror to the account (best-effort) so work follows the user across devices.
+        if (_urlId) {
+          pushProjectDebounced(_urlId, {
+            description: description.get(),
+            messages: [...archivedMessages, ...messages],
+            snapshot: {
+              chatIndex: messages[messages.length - 1].id,
+              files: currentFiles,
+              summary: chatSummary,
+            },
+          });
+        }
       } catch (error) {
         console.error('Failed to save messages to IndexedDB:', error);
         toast.error('Failed to save chat: ' + (error instanceof Error ? error.message : 'Unknown error'));
