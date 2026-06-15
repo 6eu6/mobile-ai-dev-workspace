@@ -41,19 +41,14 @@ export function Header() {
           <div className="i-ph:list text-xl" />
         </button>
         <div className="i-ph:sidebar-simple-duotone text-xl opacity-60 group-hover:opacity-100 transition-opacity duration-200 hidden sm:block" />
-        <a href="/" className="flex items-center gap-2" aria-label="Palmkit home">
-          {/* Brand mark: Palmkit app icon */}
-          <img
-            src="/palmkit-icon.jpg"
-            alt="Palmkit"
-            className="w-7 h-7 rounded-[9px] object-cover transition-transform duration-200 group-hover:scale-105"
-            style={{ boxShadow: '0 2px 10px rgba(139, 92, 246, 0.35)' }}
-          />
-          {/* Wordmark */}
-          <span className="text-[17px] sm:text-lg font-semibold tracking-tight leading-none select-none">
-            <span className="text-[var(--bolt-mobile-text-primary)]">Palm</span>
-            <span className="text-[var(--bolt-mobile-accent-text)]">kit</span>
-          </span>
+        <a
+          href="/"
+          className="flex items-center transition-transform duration-200 group-hover:scale-[1.03]"
+          aria-label="Palmkit home"
+        >
+          {/* Palmkit wordmark logo — light/dark variants */}
+          <img src="/palmkit-logo-light.png" alt="Palmkit" className="h-7 w-auto select-none dark:hidden" />
+          <img src="/palmkit-logo-dark.png" alt="Palmkit" className="h-7 w-auto select-none hidden dark:block" />
         </a>
       </div>
       {chat.started && (

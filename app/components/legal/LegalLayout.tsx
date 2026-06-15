@@ -16,12 +16,9 @@ export function LegalLayout({ title, updated, children }: { title: string; updat
           borderColor: 'var(--bolt-mobile-surface-border, rgba(139,92,246,0.14))',
         }}
       >
-        <Link to="/" className="flex items-center gap-2" aria-label="Palmkit home">
-          <img src="/palmkit-icon.jpg" alt="Palmkit" className="w-7 h-7 rounded-[9px] object-cover" />
-          <span className="text-base font-semibold tracking-tight">
-            <span>Palm</span>
-            <span style={{ color: 'var(--bolt-mobile-accent-text, #c4b5fd)' }}>kit</span>
-          </span>
+        <Link to="/" className="flex items-center" aria-label="Palmkit home">
+          <img src="/palmkit-logo-light.png" alt="Palmkit" className="h-7 w-auto select-none dark:hidden" />
+          <img src="/palmkit-logo-dark.png" alt="Palmkit" className="h-7 w-auto select-none hidden dark:block" />
         </Link>
         <Link
           to="/"
