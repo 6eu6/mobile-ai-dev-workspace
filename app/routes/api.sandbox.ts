@@ -130,23 +130,27 @@ export async function action({ context, request }: ActionFunctionArgs) {
           return json({ error: 'id is required' }, { status: 400 });
         }
 
-        const sandbox = await Sandbox.connect(body.id, { apiKey });
         const port = body.port ?? DEFAULT_PORT;
 
         /*
-         * Probe the ACTUAL preview path the iframe will load (/preview/, since
-         * the dev server runs with --base=/preview/). Require a 2xx/3xx so we
-         * only show the preview when that path really serves content — avoids a
-         * blank iframe when an app doesn't honour the base path.
+         * Probe the PUBLIC e2b host on the real preview path — exactly what the
+         * iframe will load. This (unlike an inside-the-sandbox localhost curl)
+         * verifies the dev server is reachable externally (bound to 0.0.0.0) AND
+         * serves /preview/, so we never show the iframe while it would 502/404.
          */
-        const probe = await sandbox.commands
-          .run(`curl -s -o /dev/null -w "%{http_code}" http://localhost:${port}/preview/ || echo 000`, {
-            timeoutMs: 8000,
-          })
-          .catch(() => ({ stdout: '000' }) as { stdout: string });
+        let code = 0;
 
-        const code = (probe.stdout || '').trim();
-        const ready = /^[23]\d\d$/.test(code);
+        try {
+          const probe = await fetch(`https://${port}-${body.id}.e2b.app/preview/`, {
+            method: 'GET',
+            redirect: 'manual',
+          });
+          code = probe.status;
+        } catch {
+          code = 0;
+        }
+
+        const ready = code >= 200 && code < 400;
 
         return json({ ready, code });
       }
