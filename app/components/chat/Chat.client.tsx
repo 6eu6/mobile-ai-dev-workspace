@@ -696,7 +696,10 @@ export const ChatImpl = memo(
 
     return (
       <>
-        <GenerationStatusBar />
+        {/* Desktop only — on mobile the unified bottom status bar (RemotePreviewTrigger) owns status. */}
+        <div className="hidden sm:block">
+          <GenerationStatusBar />
+        </div>
         <BaseChat
           ref={animationScope}
           textareaRef={textareaRef}

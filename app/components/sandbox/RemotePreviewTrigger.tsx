@@ -3,6 +3,12 @@ import { memo, useEffect, useRef, useState } from 'react';
 import { streamingState } from '~/lib/stores/streaming';
 import { workbenchStore } from '~/lib/stores/workbench';
 import {
+  generationStatusStore,
+  GENERATION_STEP_LABELS,
+  resetGenerationStatus,
+  setGenerationStep,
+} from '~/lib/stores/generationStatus';
+import {
   ensureRemotePreview,
   remotePreviewStatus,
   shouldUseRemotePreview,
@@ -19,8 +25,8 @@ function currentChatId(): string | undefined {
   return m ? m[1] : undefined;
 }
 
-// Rough expected time (s) to install + boot the dev server; drives the bar fill.
-const EXPECTED_SECONDS = 75;
+const GEN_STEPS = ['waiting-for-model', 'creating-files', 'updating-workspace', 'starting-preview'] as const;
+const SANDBOX_EXPECTED_SECONDS = 75;
 
 function formatElapsed(totalSeconds: number): string {
   const m = Math.floor(totalSeconds / 60);
@@ -30,20 +36,22 @@ function formatElapsed(totalSeconds: number): string {
 }
 
 /**
- * Drives the server-side (E2B) preview on memory-constrained devices and shows a
- * polished bottom status bar (with an elapsed counter + progress bar) while the
- * cloud sandbox installs and launches the preview.
+ * Unified mobile status bar.
+ *
+ * One bottom bar owns the whole lifecycle: model generation (steps + "seems
+ * stuck") AND the cloud sandbox (install + launch), each with an elapsed counter
+ * and a progress bar. It also drives the server-side (E2B) preview on
+ * memory-constrained devices. The old top GenerationStatusBar is hidden on
+ * mobile (see Chat.client) so this is the single source of status.
  */
 export const RemotePreviewTrigger = memo(() => {
   const isStreaming = useStore(streamingState);
   const files = useStore(workbenchStore.files);
-  const status = useStore(remotePreviewStatus);
+  const sandbox = useStore(remotePreviewStatus);
+  const gen = useStore(generationStatusStore);
   const prevStreaming = useRef(isStreaming);
 
-  /*
-   * Per-conversation isolation: tear down the old sandbox when switching to a
-   * DIFFERENT existing chat (fresh-page -> /chat/:id is the same session).
-   */
+  // Per-conversation isolation: tear down the old sandbox when switching chats.
   const lastChatId = useRef<string | undefined>(currentChatId());
   useEffect(() => {
     const interval = setInterval(() => {
@@ -75,7 +83,7 @@ export const RemotePreviewTrigger = memo(() => {
       return;
     }
 
-    if (!justFinished && status.state !== 'idle') {
+    if (!justFinished && sandbox.state !== 'idle') {
       return;
     }
 
@@ -84,38 +92,41 @@ export const RemotePreviewTrigger = memo(() => {
         await ensureRemotePreview();
       }
     })();
-  }, [isStreaming, files, status.state]);
+  }, [isStreaming, files, sandbox.state]);
 
-  // Elapsed-time counter while the sandbox is preparing.
-  const isPreparing = status.state === 'creating' || status.state === 'installing';
-  const [elapsed, setElapsed] = useState(0);
-  const startRef = useRef<number | null>(null);
+  // Phase detection
+  const sandboxPreparing = sandbox.state === 'creating' || sandbox.state === 'installing';
+  const genActive = gen.step !== 'idle' && gen.step !== 'done' && gen.step !== 'error';
+  const active = sandboxPreparing || genActive;
+  const hasError = sandbox.state === 'error' || gen.step === 'error';
+
+  // 1s ticker for the counters while active.
+  const [, setNow] = useState(0);
+  const sandboxStart = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!isPreparing) {
-      startRef.current = null;
-      setElapsed(0);
+    if (sandboxPreparing && sandboxStart.current === null) {
+      sandboxStart.current = Date.now();
+    }
 
+    if (!sandboxPreparing) {
+      sandboxStart.current = null;
+    }
+  }, [sandboxPreparing]);
+
+  useEffect(() => {
+    if (!active) {
       return undefined;
     }
 
-    if (startRef.current === null) {
-      startRef.current = Date.now();
-    }
+    const t = setInterval(() => setNow((n) => n + 1), 1000);
 
-    const tick = setInterval(() => {
-      if (startRef.current !== null) {
-        setElapsed(Math.floor((Date.now() - startRef.current) / 1000));
-      }
-    }, 1000);
-
-    return () => clearInterval(tick);
-  }, [isPreparing]);
+    return () => clearInterval(t);
+  }, [active]);
 
   const bottom = 'calc(var(--bolt-mobile-dock-height) + env(safe-area-inset-bottom, 0px) + 10px)';
 
-  // Inline preview renders in the Preview tab when ready — surface only progress/errors here.
-  if (status.state === 'error') {
+  if (hasError && !active) {
     return (
       <div
         className="fixed left-3 right-3 z-40 sm:hidden flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-medium"
@@ -128,17 +139,33 @@ export const RemotePreviewTrigger = memo(() => {
         }}
       >
         <span className="i-ph:warning-circle text-sm shrink-0" />
-        Cloud preview failed — try again
+        {sandbox.state === 'error' ? 'Cloud preview failed — try again' : 'Generation failed — try again'}
       </div>
     );
   }
 
-  if (!isPreparing) {
+  if (!active) {
     return null;
   }
 
-  const label = status.state === 'creating' ? 'Starting cloud sandbox' : 'Installing & launching preview';
-  const progress = Math.min(95, Math.round((elapsed / EXPECTED_SECONDS) * 100));
+  // Resolve label / counter / progress for the current phase.
+  let label: string;
+  let elapsedSeconds = 0;
+  let progress = 0;
+
+  if (sandboxPreparing) {
+    label = sandbox.state === 'creating' ? 'Starting cloud sandbox' : 'Installing & launching preview';
+    elapsedSeconds = sandboxStart.current ? Math.floor((Date.now() - sandboxStart.current) / 1000) : 0;
+    progress = Math.min(95, Math.round((elapsedSeconds / SANDBOX_EXPECTED_SECONDS) * 100));
+  } else {
+    label = GENERATION_STEP_LABELS[gen.step] ?? 'Working…';
+    elapsedSeconds = gen.startTime ? Math.floor((Date.now() - gen.startTime) / 1000) : 0;
+
+    const idx = GEN_STEPS.indexOf(gen.step as (typeof GEN_STEPS)[number]);
+    progress = idx >= 0 ? Math.min(90, Math.round((idx / (GEN_STEPS.length - 1)) * 100)) : 10;
+  }
+
+  const currentFile = !sandboxPreparing && gen.currentFile ? gen.currentFile.split('/').pop() : undefined;
 
   return (
     <div
@@ -156,12 +183,43 @@ export const RemotePreviewTrigger = memo(() => {
           className="i-svg-spinners:90-ring-with-bg text-base shrink-0"
           style={{ color: 'var(--bolt-mobile-accent-text)' }}
         />
-        <span className="text-xs font-medium flex-1 truncate" style={{ color: 'var(--bolt-mobile-text-primary)' }}>
+        <span className="text-xs font-medium truncate" style={{ color: 'var(--bolt-mobile-text-primary)' }}>
           {label}
         </span>
-        <span className="text-xs font-semibold tabular-nums" style={{ color: 'var(--bolt-mobile-text-accent)' }}>
-          {formatElapsed(elapsed)}
-        </span>
+        {currentFile && (
+          <span
+            className="text-[11px] font-mono truncate opacity-70"
+            style={{ color: 'var(--bolt-mobile-text-secondary)' }}
+          >
+            {currentFile}
+          </span>
+        )}
+
+        {gen.isStuck && !sandboxPreparing ? (
+          <div className="flex items-center gap-1.5 ml-auto shrink-0">
+            <button
+              onClick={() => resetGenerationStatus()}
+              className="text-[11px] px-2 py-1 rounded-md"
+              style={{ background: 'var(--bolt-mobile-error-muted)', color: 'var(--bolt-mobile-error)' }}
+            >
+              Stop
+            </button>
+            <button
+              onClick={() => setGenerationStep('waiting-for-model')}
+              className="text-[11px] px-2 py-1 rounded-md"
+              style={{ background: 'var(--bolt-mobile-accent-muted)', color: 'var(--bolt-mobile-accent-text)' }}
+            >
+              Retry
+            </button>
+          </div>
+        ) : (
+          <span
+            className="text-xs font-semibold tabular-nums ml-auto shrink-0"
+            style={{ color: 'var(--bolt-mobile-text-accent)' }}
+          >
+            {formatElapsed(elapsedSeconds)}
+          </span>
+        )}
       </div>
       {/* Progress bar */}
       <div className="h-1 w-full" style={{ background: 'var(--bolt-mobile-accent-faint)' }}>
@@ -169,7 +227,9 @@ export const RemotePreviewTrigger = memo(() => {
           className="h-full rounded-r-full"
           style={{
             width: `${progress}%`,
-            background: 'linear-gradient(90deg, var(--bolt-mobile-accent) 0%, #c084fc 100%)',
+            background: gen.isStuck
+              ? 'var(--bolt-mobile-warning)'
+              : 'linear-gradient(90deg, var(--bolt-mobile-accent) 0%, #c084fc 100%)',
             transition: 'width 1s linear',
           }}
         />
