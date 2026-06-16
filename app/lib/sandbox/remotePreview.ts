@@ -17,6 +17,8 @@ import {
   checkRemoteStatus,
   isRemoteSandboxAvailable,
   isMemoryConstrainedDevice,
+  destroyRemoteSandbox,
+  resetAvailabilityCache,
 } from './remoteSandbox';
 
 export type RemotePreviewState = 'idle' | 'creating' | 'installing' | 'ready' | 'error';
@@ -25,16 +27,19 @@ export interface RemotePreviewStatus {
   state: RemotePreviewState;
   url?: string;
   error?: string;
+  retryable?: boolean;
 }
 
 export const remotePreviewStatus = atom<RemotePreviewStatus>({ state: 'idle' });
 
 const DEV_PORT = 3000;
+const MAX_CREATE_RETRIES = 2;
 
 let sandboxId: string | undefined;
 let started = false;
 let lastSignature = '';
 let inflight = false;
+let createRetryCount = 0;
 
 /** Collect text files from the workbench as a relative path -> contents map. */
 function collectFiles(): Record<string, string> {
@@ -87,13 +92,17 @@ export async function shouldUseRemotePreview(): Promise<boolean> {
  * Ensure a remote preview exists/updates for the current files.
  * - First call: create sandbox, push files, install + start dev, inject preview.
  * - Later calls: push updated files (Vite HMR reloads the running preview).
+ *
+ * On sandbox creation failure, cleans up the failed sandbox and allows retry.
  */
 export async function ensureRemotePreview(): Promise<void> {
   if (inflight) {
     return;
   }
 
-  if (Object.keys(collectFiles()).length === 0) {
+  const fileCount = Object.keys(collectFiles()).length;
+
+  if (fileCount === 0) {
     return;
   }
 
@@ -116,8 +125,34 @@ export async function ensureRemotePreview(): Promise<void> {
     if (!sandboxId) {
       remotePreviewStatus.set({ state: 'creating' });
 
-      const sandbox = await createRemoteSandbox();
-      sandboxId = sandbox.id;
+      try {
+        const sandbox = await createRemoteSandbox();
+        sandboxId = sandbox.id;
+        createRetryCount = 0; // reset on success
+      } catch (createError) {
+        createRetryCount++;
+
+        // Clean up any partially-created sandbox
+        if (sandboxId) {
+          void destroyRemoteSandbox(sandboxId).catch(() => undefined);
+          sandboxId = undefined;
+        }
+
+        if (createRetryCount <= MAX_CREATE_RETRIES) {
+          console.warn(`[RemotePreview] sandbox create failed (attempt ${createRetryCount}/${MAX_CREATE_RETRIES}), will retry on next trigger`);
+
+          // Don't set error state — let the next trigger retry
+          remotePreviewStatus.set({ state: 'idle' });
+          return;
+        }
+
+        // Exhausted retries
+        const message = createError instanceof Error ? createError.message : String(createError);
+        const retryable = !message.includes('not configured') && !message.includes('501');
+        remotePreviewStatus.set({ state: 'error', error: message, retryable });
+        resetAvailabilityCache();
+        return;
+      }
     }
 
     await pushFiles(sandboxId, files);
@@ -151,7 +186,18 @@ export async function ensureRemotePreview(): Promise<void> {
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    remotePreviewStatus.set({ state: 'error', error: message });
+    console.error('[RemotePreview] ensureRemotePreview failed:', message);
+
+    // If the sandbox itself is broken, kill it so next attempt creates fresh
+    if (sandboxId && message.includes('sandbox')) {
+      console.warn('[RemotePreview] destroying broken sandbox before reset');
+      void destroyRemoteSandbox(sandboxId).catch(() => undefined);
+      sandboxId = undefined;
+      started = false;
+      lastSignature = '';
+    }
+
+    remotePreviewStatus.set({ state: 'error', error: message, retryable: true });
   } finally {
     inflight = false;
   }
@@ -215,6 +261,7 @@ export function resetRemotePreview(): void {
   started = false;
   lastSignature = '';
   inflight = false;
+  createRetryCount = 0;
   remotePreviewStatus.set({ state: 'idle' });
 }
 

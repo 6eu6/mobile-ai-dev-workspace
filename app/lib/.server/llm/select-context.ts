@@ -177,10 +177,26 @@ export async function selectContext(props: {
   });
 
   const response = resp.text;
+  logger.debug(`selectContext LLM response: ${response.substring(0, 300)}`);
+
   const updateContextBuffer = response.match(/<updateContextBuffer>([\s\S]*?)<\/updateContextBuffer>/);
 
   if (!updateContextBuffer) {
-    throw new Error('Invalid response. Please follow the response format');
+    /*
+     * The LLM didn't follow the XML format — this happens often with smaller
+     * models or when the file list is empty.  Instead of crashing the entire
+     * chat stream, return the files that were already in the context buffer
+     * (or empty if none).  The main generation will proceed without extra
+     * context, which is perfectly fine for most requests.
+     */
+    logger.warn('selectContext: LLM response did not contain <updateContextBuffer> — continuing without extra context');
+
+    if (onFinish) {
+      onFinish(resp);
+    }
+
+    // Return whatever was already in the context buffer
+    return { ...contextFiles };
   }
 
   const includeFiles =
@@ -204,10 +220,8 @@ export async function selectContext(props: {
     }
 
     if (!filePaths.includes(fullPath)) {
-      logger.error(`File ${path} is not in the list of files above.`);
+      logger.warn(`selectContext: LLM included file "${path}" which is not in the available file list — skipping`);
       return;
-
-      // throw new Error(`File ${path} is not in the list of files above.`);
     }
 
     if (currrentFiles.includes(path)) {
@@ -222,10 +236,17 @@ export async function selectContext(props: {
   }
 
   const totalFiles = Object.keys(filteredFiles).length;
-  logger.info(`Total files: ${totalFiles}`);
+  logger.info(`Total files selected: ${totalFiles}`);
 
-  if (totalFiles == 0) {
-    throw new Error(`Bolt failed to select files`);
+  if (totalFiles === 0) {
+    /*
+     * No NEW files were selected (the LLM may have decided the existing
+     * context buffer is sufficient, or returned an empty buffer).  This is
+     * NOT an error — continue with the existing context buffer contents.
+     */
+    logger.info('selectContext: no new files selected — continuing with existing context buffer');
+
+    return { ...contextFiles };
   }
 
   return filteredFiles;

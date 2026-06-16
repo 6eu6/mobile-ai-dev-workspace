@@ -77,6 +77,14 @@ export async function isRemoteSandboxAvailable(): Promise<boolean> {
   return availabilityCache;
 }
 
+/**
+ * Reset the availability cache so the next check hits the server again.
+ * Useful after a network change or when retrying after a failure.
+ */
+export function resetAvailabilityCache(): void {
+  availabilityCache = undefined;
+}
+
 /** Synchronous read of the cached availability (false until first async check). */
 export function getRemoteAvailabilitySync(): boolean {
   return availabilityCache === true;
@@ -92,40 +100,96 @@ if (typeof window !== 'undefined') {
   void isRemoteSandboxAvailable().then((ok) => console.info(`[E2B] availability resolved: ${ok}`));
 }
 
-async function call<T>(payload: Record<string, unknown>): Promise<T> {
-  const res = await fetch(BASE, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
+/**
+ * Retry helper for E2B API calls.
+ * E2B sandboxes can be flaky on first create (cold start) — retry transient
+ * failures with exponential back-off.
+ */
+async function callWithRetry<T>(
+  payload: Record<string, unknown>,
+  retries = 2,
+  baseDelayMs = 1500,
+): Promise<T> {
+  let lastError: Error | undefined;
 
-  const data = (await res.json().catch(() => ({}))) as T & { error?: string };
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(BASE, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(60000), // 60s per attempt
+      });
 
-  if (!res.ok) {
-    throw new Error(data.error || `sandbox ${String(payload.op)} -> ${res.status}`);
+      const data = (await res.json().catch(() => ({}))) as T & { error?: string };
+
+      if (!res.ok) {
+        // 501 = API key not configured — never retry
+        if (res.status === 501) {
+          throw new Error(data.error || 'E2B not configured');
+        }
+
+        // 400 = bad request — retrying won't help
+        if (res.status === 400) {
+          throw new Error(data.error || `Bad request: ${payload.op}`);
+        }
+
+        // 5xx or other — might be transient, retry
+        lastError = new Error(data.error || `sandbox ${String(payload.op)} -> ${res.status}`);
+
+        if (attempt < retries) {
+          const delay = baseDelayMs * Math.pow(2, attempt);
+          console.warn(`[E2B] ${payload.op} failed (${res.status}), retry ${attempt + 1}/${retries} in ${delay}ms`);
+          await new Promise((r) => setTimeout(r, delay));
+          continue;
+        }
+
+        throw lastError;
+      }
+
+      return data as T;
+    } catch (err) {
+      // Don't retry client-side aborts or timeouts on the last attempt
+      if (err instanceof DOMException && err.name === 'TimeoutError' && attempt < retries) {
+        lastError = err as Error;
+        const delay = baseDelayMs * Math.pow(2, attempt);
+        console.warn(`[E2B] ${payload.op} timed out, retry ${attempt + 1}/${retries} in ${delay}ms`);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+
+      if (attempt === retries) {
+        throw err instanceof Error ? err : new Error(String(err));
+      }
+
+      lastError = err instanceof Error ? err : new Error(String(err));
+      const delay = baseDelayMs * Math.pow(2, attempt);
+      console.warn(`[E2B] ${payload.op} error: ${lastError.message}, retry ${attempt + 1}/${retries} in ${delay}ms`);
+      await new Promise((r) => setTimeout(r, delay));
+    }
   }
 
-  return data as T;
+  throw lastError || new Error('E2B operation failed after retries');
 }
 
-/** Create a sandbox session. */
+/** Create a sandbox session (with retry). */
 export async function createRemoteSandbox(): Promise<RemoteSandbox> {
-  const { id } = await call<{ id: string }>({ op: 'create' });
+  const { id } = await callWithRetry<{ id: string }>({ op: 'create' });
 
   return { id };
 }
 
-/** Upload project files (path -> contents). */
+/** Upload project files (path -> contents) (with retry). */
 export async function pushFiles(id: string, files: Record<string, string>): Promise<void> {
-  await call({ op: 'files', id, files });
+  await callWithRetry({ op: 'files', id, files });
 }
 
-/** Install dependencies + start the dev server; returns the public preview URL. */
+/** Install dependencies + start the dev server; returns the public preview URL (with retry). */
 export async function startRemoteSandbox(
   id: string,
   opts?: { install?: string; dev?: string; port?: number },
 ): Promise<string> {
-  const { url } = await call<{ url: string }>({ op: 'start', id, ...(opts || {}) });
+  const { url } = await callWithRetry<{ url: string }>({ op: 'start', id, ...(opts || {}) });
 
   return url;
 }
@@ -133,7 +197,7 @@ export async function startRemoteSandbox(
 /** Whether the dev server inside the sandbox is responding on its port yet. */
 export async function checkRemoteStatus(id: string, port?: number): Promise<boolean> {
   try {
-    const { ready } = await call<{ ready: boolean }>({ op: 'status', id, port });
+    const { ready } = await callWithRetry<{ ready: boolean }>({ op: 'status', id, port }, 0);
 
     return Boolean(ready);
   } catch {
@@ -143,5 +207,5 @@ export async function checkRemoteStatus(id: string, port?: number): Promise<bool
 
 /** Tear down the sandbox (also auto-reaped after inactivity). */
 export async function destroyRemoteSandbox(id: string): Promise<void> {
-  await call({ op: 'destroy', id }).catch(() => undefined);
+  await callWithRetry({ op: 'destroy', id }, 0).catch(() => undefined);
 }

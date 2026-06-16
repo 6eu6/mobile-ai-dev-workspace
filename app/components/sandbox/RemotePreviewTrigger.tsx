@@ -13,6 +13,7 @@ import {
   remotePreviewStatus,
   shouldUseRemotePreview,
   resetForChat,
+  resetRemotePreview,
 } from '~/lib/sandbox/remotePreview';
 import { isMemoryConstrainedDevice } from '~/lib/sandbox/remoteSandbox';
 
@@ -135,6 +136,8 @@ export const RemotePreviewTrigger = memo(() => {
   const bottom = 'calc(var(--bolt-mobile-dock-height) + env(safe-area-inset-bottom, 0px) + 10px)';
 
   if (hasError && !active) {
+    const isSandboxError = sandbox.state === 'error';
+
     return (
       <div
         className="fixed left-3 right-3 z-40 sm:hidden flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-medium"
@@ -147,7 +150,23 @@ export const RemotePreviewTrigger = memo(() => {
         }}
       >
         <span className="i-ph:warning-circle text-sm shrink-0" />
-        {sandbox.state === 'error' ? 'Cloud preview failed — try again' : 'Generation failed — try again'}
+        <span className="flex-1 truncate">
+          {isSandboxError
+            ? 'Cloud preview failed'
+            : 'Generation failed'}
+        </span>
+        {isSandboxError && sandbox.retryable && (
+          <button
+            onClick={() => {
+              resetRemotePreview();
+              setTimeout(() => void ensureRemotePreview(), 300);
+            }}
+            className="text-[11px] px-2.5 py-1 rounded-md shrink-0 font-medium"
+            style={{ background: 'var(--bolt-mobile-error-muted)', color: 'var(--bolt-mobile-error)' }}
+          >
+            Retry
+          </button>
+        )}
       </div>
     );
   }
