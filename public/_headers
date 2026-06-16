@@ -4,9 +4,21 @@
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
 
-# HTML routes (handled by the Pages Function) — never cache
+# HTML routes (handled by the Pages Function) — never cache.
+# Standard `Cache-Control: no-store` is NOT enough for Cloudflare — we MUST
+# also send Cloudflare-specific directives:
+#   - Cloudflare-CDN-Cache-Control: no-store  → Cloudflare edge & Pages-internal cache
+#   - CDN-Cache-Control: no-store              → standard RFC 9211 (shared CDN caches)
+#   - Surrogate-Control: no-store              → legacy surrogate caches
+#   - Vary: *                                  → every request is unique (no cache key reuse)
+#   - Cache-Tag: palmkit-html                  → enables tag-based purging (Enterprise)
 /
   Cache-Control: no-cache, no-store, must-revalidate
+  Cloudflare-CDN-Cache-Control: no-store, max-age=0
+  CDN-Cache-Control: no-store, max-age=0
+  Surrogate-Control: no-store
+  Vary: *
+  Cache-Tag: palmkit-html
 
 # Static assets (JS/CSS/images with content hashes) — cache aggressively
 /_build/*

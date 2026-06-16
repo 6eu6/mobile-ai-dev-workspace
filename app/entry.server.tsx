@@ -70,10 +70,25 @@ export default async function handleRequest(
 
   responseHeaders.set('Content-Type', 'text/html');
 
-  // Prevent Cloudflare edge cache from serving stale HTML.
-  // This was the root cause of palmkit.app showing an old Next.js page
-  // for hours after a new deployment.
+  // Prevent Cloudflare edge cache AND Pages-internal asset cache from serving
+  // stale HTML. The standard `Cache-Control: no-store` alone is NOT enough —
+  // Cloudflare's CDN layer needs its own directives:
+  //   - `Cloudflare-CDN-Cache-Control`: Cloudflare-specific, takes precedence
+  //   - `CDN-Cache-Control`: standard RFC 9211, respected by Cloudflare and other CDNs
+  //   - `Surrogate-Control`: legacy, respected by some caching layers
+  //   - `Cache-Tag`: enables tag-based purging (Enterprise feature, harmless on Free plan)
+  //
+  // Root cause of the original bug: the old Next.js deployment set a long
+  // s-maxage on `/`, Cloudflare cached the HTML, and `Cache-Control: no-store`
+  // on the new Remix responses did NOT clear the existing cached entry.
+  // `Cloudflare-CDN-Cache-Control: no-store` explicitly forbids Cloudflare
+  // from caching, and combined with `Vary: *` ensures every request is unique.
   responseHeaders.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+  responseHeaders.set('Cloudflare-CDN-Cache-Control', 'no-store, max-age=0');
+  responseHeaders.set('CDN-Cache-Control', 'no-store, max-age=0');
+  responseHeaders.set('Surrogate-Control', 'no-store');
+  responseHeaders.set('Vary', '*');
+  responseHeaders.set('Cache-Tag', 'palmkit-html');
 
   responseHeaders.set('Cross-Origin-Embedder-Policy', 'require-corp');
   responseHeaders.set('Cross-Origin-Opener-Policy', 'same-origin');
