@@ -118,7 +118,7 @@ async function callWithRetry<T>(
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(60000), // 60s per attempt
+        signal: AbortSignal.timeout(120000), // 120s per attempt (mobile networks can be slow)
       });
 
       const data = (await res.json().catch(() => ({}))) as T & { error?: string };
@@ -181,7 +181,33 @@ export async function createRemoteSandbox(): Promise<RemoteSandbox> {
 
 /** Upload project files (path -> contents) (with retry). */
 export async function pushFiles(id: string, files: Record<string, string>): Promise<void> {
-  await callWithRetry({ op: 'files', id, files });
+  const entries = Object.entries(files);
+
+  if (entries.length === 0) {
+    return;
+  }
+
+  /*
+   * Chunk the upload into batches of 10 files to avoid:
+   * 1. Cloudflare Workers 100 MB body size limit (rare but possible on huge projects)
+   * 2. Mobile network timeouts on large payloads
+   * 3. E2B API request size limits
+   */
+  const BATCH_SIZE = 10;
+  const totalFiles = entries.length;
+
+  for (let i = 0; i < entries.length; i += BATCH_SIZE) {
+    const batch = entries.slice(i, i + BATCH_SIZE);
+    const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+    const totalBatches = Math.ceil(entries.length / BATCH_SIZE);
+    const batchFiles = Object.fromEntries(batch);
+
+    console.info(`[E2B] uploading batch ${batchNum}/${totalBatches} (${batch.length} files, ${Object.values(batchFiles).reduce((s, c) => s + c.length, 0)} bytes)`);
+
+    await callWithRetry({ op: 'files', id, files: batchFiles }, 2, 2000);
+  }
+
+  console.info(`[E2B] all ${totalFiles} files uploaded successfully`);
 }
 
 /** Install dependencies + start the dev server; returns the public preview URL (with retry). */

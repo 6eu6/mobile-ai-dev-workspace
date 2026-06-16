@@ -100,9 +100,11 @@ export async function ensureRemotePreview(): Promise<void> {
     return;
   }
 
-  const fileCount = Object.keys(collectFiles()).length;
+  const currentFiles = collectFiles();
+  const fileCount = Object.keys(currentFiles).length;
 
   if (fileCount === 0) {
+    console.info('[RemotePreview] no files to preview');
     return;
   }
 
@@ -115,8 +117,11 @@ export async function ensureRemotePreview(): Promise<void> {
      * upload — otherwise we'd push an incomplete project (no package.json) and
      * the dev server would never start.
      */
+    console.info(`[RemotePreview] waiting for files to stabilize (currently ${fileCount} files)`);
     const files = await waitForFilesStable();
     const sig = signature(files);
+
+    console.info(`[RemotePreview] files stabilized: ${Object.keys(files).length} files, ${Object.values(files).reduce((s, c) => s + c.length, 0)} total bytes`);
 
     if (started && sig === lastSignature) {
       return; // nothing changed
@@ -124,11 +129,13 @@ export async function ensureRemotePreview(): Promise<void> {
 
     if (!sandboxId) {
       remotePreviewStatus.set({ state: 'creating' });
+      console.info('[RemotePreview] creating new E2B sandbox...');
 
       try {
         const sandbox = await createRemoteSandbox();
         sandboxId = sandbox.id;
         createRetryCount = 0; // reset on success
+        console.info(`[RemotePreview] sandbox created: ${sandboxId}`);
       } catch (createError) {
         createRetryCount++;
 
@@ -138,23 +145,24 @@ export async function ensureRemotePreview(): Promise<void> {
           sandboxId = undefined;
         }
 
-        if (createRetryCount <= MAX_CREATE_RETRIES) {
-          console.warn(`[RemotePreview] sandbox create failed (attempt ${createRetryCount}/${MAX_CREATE_RETRIES}), will retry on next trigger`);
+        const errMsg = createError instanceof Error ? createError.message : String(createError);
+        console.error(`[RemotePreview] sandbox create failed (attempt ${createRetryCount}/${MAX_CREATE_RETRIES}): ${errMsg}`);
 
+        if (createRetryCount <= MAX_CREATE_RETRIES) {
           // Don't set error state — let the next trigger retry
           remotePreviewStatus.set({ state: 'idle' });
           return;
         }
 
         // Exhausted retries
-        const message = createError instanceof Error ? createError.message : String(createError);
-        const retryable = !message.includes('not configured') && !message.includes('501');
-        remotePreviewStatus.set({ state: 'error', error: message, retryable });
+        const retryable = !errMsg.includes('not configured') && !errMsg.includes('501');
+        remotePreviewStatus.set({ state: 'error', error: errMsg, retryable });
         resetAvailabilityCache();
         return;
       }
     }
 
+    console.info(`[RemotePreview] pushing ${Object.keys(files).length} files to sandbox ${sandboxId}`);
     await pushFiles(sandboxId, files);
     lastSignature = sig;
 

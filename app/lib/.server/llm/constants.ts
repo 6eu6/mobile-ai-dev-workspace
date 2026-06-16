@@ -10,14 +10,14 @@ export const MAX_TOKENS = 128000;
  * Used as fallbacks when model doesn't specify maxCompletionTokens
  */
 export const PROVIDER_COMPLETION_LIMITS: Record<string, number> = {
-  OpenAI: 4096, // Standard GPT models (o1 models have much higher limits)
-  Github: 4096, // GitHub Models use OpenAI-compatible limits
-  Anthropic: 64000, // Conservative limit for Claude 4 models (Opus: 32k, Sonnet: 64k)
-  Google: 8192, // Gemini 1.5 Pro/Flash standard limit
-  Cohere: 4000,
+  OpenAI: 16384, // GPT-4o and above support 16k+ output tokens
+  Github: 16384, // GitHub Models use OpenAI-compatible limits
+  Anthropic: 16384, // Claude models handle 16k comfortably per segment
+  Google: 16384, // Gemini Pro/Flash support 16k+ output
+  Cohere: 8192,
   DeepSeek: 8192,
   Groq: 8192,
-  HuggingFace: 4096,
+  HuggingFace: 8192,
   Mistral: 8192,
   Ollama: 8192,
   OpenRouter: 8192,

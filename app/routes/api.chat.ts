@@ -21,6 +21,14 @@ export async function action(args: ActionFunctionArgs) {
 
 const logger = createScopedLogger('api.chat');
 
+/*
+ * Simple counter for auto-continue segments.
+ * The old SwitchableStream.switches was dead code (switchSource() was never
+ * called), so MAX_RESPONSE_SEGMENTS was never enforced — causing infinite
+ * recursion when a model repeatedly hit its token limit.
+ */
+let continueSegmentCount = 0;
+
 function parseCookies(cookieHeader: string): Record<string, string> {
   const cookies: Record<string, string> = {};
 
@@ -77,6 +85,14 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
 
   const stream = new SwitchableStream();
 
+  /*
+   * Simple counter for auto-continue segments.
+   * The old SwitchableStream.switches was dead code (switchSource() was never
+   * called), so MAX_RESPONSE_SEGMENTS was never enforced — causing infinite
+   * recursion when a model repeatedly hit its token limit.
+   */
+  let continueSegmentCount = 0;
+
   const cumulativeUsage = {
     completionTokens: 0,
     promptTokens: 0,
@@ -94,6 +110,11 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
 
     const dataStream = createDataStream({
       async execute(dataStream) {
+        /*
+         * Local reference for error notification from the monitoring loop.
+         */
+        const ds = dataStream;
+
         /*
          * Stream recovery: if no data arrives for 45 s the AI service is
          * likely unresponsive.  We cannot re-create the stream mid-flight, but
@@ -281,6 +302,7 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
             }
 
             if (finishReason !== 'length') {
+              streamRecovery.stop();
               dataStream.writeMessageAnnotation({
                 type: 'usage',
                 value: {
@@ -302,13 +324,24 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
               return;
             }
 
-            if (stream.switches >= MAX_RESPONSE_SEGMENTS) {
-              throw Error('Cannot continue message: Maximum segments reached');
+            continueSegmentCount++;
+
+            if (continueSegmentCount > MAX_RESPONSE_SEGMENTS) {
+              logger.warn(`Auto-continue limit reached (${MAX_RESPONSE_SEGMENTS} segments). Stopping.`);
+              dataStream.writeData({
+                type: 'progress',
+                label: 'response',
+                status: 'error',
+                order: progressCounter++,
+                message: `Response was truncated after ${MAX_RESPONSE_SEGMENTS} segments. The project may be incomplete — try asking the AI to continue.`,
+              } satisfies ProgressAnnotation);
+              streamRecovery.stop();
+              return;
             }
 
-            const switchesLeft = MAX_RESPONSE_SEGMENTS - stream.switches;
+            const switchesLeft = MAX_RESPONSE_SEGMENTS - continueSegmentCount;
 
-            logger.info(`Reached max token limit (${MAX_TOKENS}): Continuing message (${switchesLeft} switches left)`);
+            logger.info(`Reached token limit, auto-continuing segment ${continueSegmentCount}/${MAX_RESPONSE_SEGMENTS} (${switchesLeft} remaining)`);
 
             const lastUserMessage = processedMessages.filter((x) => x.role === 'user').slice(-1)[0];
             const { model, provider } = extractPropertiesFromMessage(lastUserMessage);
@@ -339,13 +372,27 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
 
             (async () => {
               for await (const part of result.fullStream) {
+                streamRecovery.updateActivity();
+
                 if (part.type === 'error') {
                   const error: any = part.error;
-                  logger.error(`${error}`);
+                  logger.error(`Streaming error in continue segment ${continueSegmentCount}:`, error);
 
+                  try {
+                    ds.writeData({
+                      type: 'progress',
+                      label: 'response',
+                      status: 'error',
+                      order: progressCounter++,
+                      message: `Streaming error on continue: ${error.message || 'Unknown error'}`,
+                    } satisfies ProgressAnnotation);
+                  } catch { /* stream may already be closed */ }
+
+                  streamRecovery.stop();
                   return;
                 }
               }
+              streamRecovery.stop();
             })();
 
             return;
@@ -385,12 +432,19 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
               logger.error('Streaming error:', error);
               streamRecovery.stop();
 
-              // Enhanced error handling for common streaming issues
-              if (error.message?.includes('Invalid JSON response')) {
-                logger.error('Invalid JSON response detected - likely malformed API response');
-              } else if (error.message?.includes('token')) {
-                logger.error('Token-related error detected - possible token limit exceeded');
-              }
+              /*
+               * Notify the client so it can show a clear error instead of
+               * silently swallowing the failure.
+               */
+              try {
+                ds.writeData({
+                  type: 'progress',
+                  label: 'response',
+                  status: 'error',
+                  order: progressCounter++,
+                  message: `Streaming error: ${error.message || 'Unknown error'}`,
+                } satisfies ProgressAnnotation);
+              } catch { /* stream may already be closed */ }
 
               return;
             }
