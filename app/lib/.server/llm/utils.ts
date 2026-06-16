@@ -1,6 +1,6 @@
 import { type Message } from 'ai';
 import { DEFAULT_MODEL, DEFAULT_PROVIDER, MODEL_REGEX, PROVIDER_REGEX } from '~/utils/constants';
-import { IGNORE_PATTERNS, type FileMap } from './constants';
+import { IGNORE_PATTERNS, type FileMap } from '~/lib/common/llm/constants';
 import ignore from 'ignore';
 import type { ContextAnnotation } from '~/types/context';
 

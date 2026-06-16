@@ -1,9 +1,8 @@
 import { type ActionFunctionArgs } from '@remix-run/cloudflare';
 import { createDataStream, generateId } from 'ai';
-import { MAX_RESPONSE_SEGMENTS, MAX_TOKENS, type FileMap } from '~/lib/common/llm/constants';
+import { MAX_RESPONSE_SEGMENTS, type FileMap } from '~/lib/common/llm/constants';
 import { CONTINUE_PROMPT } from '~/lib/common/prompts/prompts';
 import { streamText, type Messages, type StreamingOptions } from '~/lib/.server/llm/stream-text';
-import SwitchableStream from '~/lib/.server/llm/switchable-stream';
 import type { IProviderSetting } from '~/types/model';
 import { createScopedLogger } from '~/utils/logger';
 import { getFilePaths, selectContext } from '~/lib/.server/llm/select-context';
@@ -20,14 +19,6 @@ export async function action(args: ActionFunctionArgs) {
 }
 
 const logger = createScopedLogger('api.chat');
-
-/*
- * Simple counter for auto-continue segments.
- * The old SwitchableStream.switches was dead code (switchSource() was never
- * called), so MAX_RESPONSE_SEGMENTS was never enforced — causing infinite
- * recursion when a model repeatedly hit its token limit.
- */
-let continueSegmentCount = 0;
 
 function parseCookies(cookieHeader: string): Record<string, string> {
   const cookies: Record<string, string> = {};
@@ -83,16 +74,6 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
     logger.warn('Malformed providers cookie — treating as empty');
   }
 
-  const stream = new SwitchableStream();
-
-  /*
-   * Simple counter for auto-continue segments.
-   * The old SwitchableStream.switches was dead code (switchSource() was never
-   * called), so MAX_RESPONSE_SEGMENTS was never enforced — causing infinite
-   * recursion when a model repeatedly hit its token limit.
-   */
-  let continueSegmentCount = 0;
-
   const cumulativeUsage = {
     completionTokens: 0,
     promptTokens: 0,
@@ -100,6 +81,13 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
   };
   const encoder: TextEncoder = new TextEncoder();
   let progressCounter: number = 1;
+
+  /*
+   * StreamRecoveryManager in outer scope so the TransformStream wrapper
+   * (which processes every outgoing chunk) can call updateActivity() to
+   * keep the timeout timer alive while data is actively flowing.
+   */
+  let streamRecovery: StreamRecoveryManager | null = null;
 
   try {
     const mcpService = MCPService.getInstance();
@@ -111,17 +99,12 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
     const dataStream = createDataStream({
       async execute(dataStream) {
         /*
-         * Local reference for error notification from the monitoring loop.
-         */
-        const ds = dataStream;
-
-        /*
          * Stream recovery: if no data arrives for 45 s the AI service is
          * likely unresponsive.  We cannot re-create the stream mid-flight, but
          * we CAN notify the client so it can show a clear error instead of
          * hanging forever.
          */
-        const streamRecovery = new StreamRecoveryManager({
+        streamRecovery = new StreamRecoveryManager({
           timeout: 45000,
           maxRetries: 1,
           onTimeout: () => {
@@ -133,7 +116,7 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
               order: progressCounter++,
               message: 'The AI service timed out. Please try again or select a different model.',
             } satisfies ProgressAnnotation);
-            streamRecovery.stop();
+            streamRecovery?.stop();
           },
         });
 
@@ -151,14 +134,6 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
         }
 
         if (filePaths.length > 0 && contextOptimization) {
-          /*
-           * Context optimization (summary + file selection) is a BEST-EFFORT
-           * pre-processing step.  If the LLM call for summary or file selection
-           * fails (model error, malformed response, timeout, etc.), we log the
-           * error and CONTINUE with the main generation — the AI will just work
-           * without a pre-computed summary or context buffer.  This prevents the
-           * entire chat stream from dying due to a non-critical helper step.
-           */
           try {
             logger.debug('Generating Chat Summary');
             dataStream.writeData({
@@ -169,7 +144,6 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
               message: 'Analysing Request',
             } satisfies ProgressAnnotation);
 
-            // Create a summary of the chat
             logger.debug(`Messages count: ${processedMessages.length}`);
 
             summary = await createSummary({
@@ -213,7 +187,6 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
           }
 
           try {
-            // Update context buffer
             logger.debug('Updating Context Buffer');
             dataStream.writeData({
               type: 'progress',
@@ -223,7 +196,6 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
               message: 'Determining Files to Read',
             } satisfies ProgressAnnotation);
 
-            // Select context files
             logger.debug(`Messages count: ${processedMessages.length}`);
             filteredFiles = await selectContext({
               messages: [...processedMessages],
@@ -281,121 +253,26 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
           }
         }
 
-        const options: StreamingOptions = {
+        /*
+         * Streaming options — note: NO onFinish callback.
+         * The old onFinish handled auto-continue by starting a new
+         * mergeIntoDataStream from within the callback, but that new
+         * merge was never awaited, so the execute() function returned
+         * and createDataStream closed the stream before the continue
+         * segment could finish — causing the "cuts off mid-creation" bug.
+         *
+         * Instead, we now use a while-loop below that awaits each
+         * mergeIntoDataStream and checks finishReason afterwards.
+         */
+        const streamOptions: StreamingOptions = {
           supabaseConnection: supabase,
           toolChoice: 'auto',
           tools: mcpService.toolsWithoutExecute,
           maxSteps: maxLLMSteps,
           onStepFinish: ({ toolCalls }) => {
-            // add tool call annotations for frontend processing
             toolCalls.forEach((toolCall) => {
               mcpService.processToolCall(toolCall, dataStream);
             });
-          },
-          onFinish: async ({ text: content, finishReason, usage }) => {
-            logger.debug('usage', JSON.stringify(usage));
-
-            if (usage) {
-              cumulativeUsage.completionTokens += usage.completionTokens || 0;
-              cumulativeUsage.promptTokens += usage.promptTokens || 0;
-              cumulativeUsage.totalTokens += usage.totalTokens || 0;
-            }
-
-            if (finishReason !== 'length') {
-              streamRecovery.stop();
-              dataStream.writeMessageAnnotation({
-                type: 'usage',
-                value: {
-                  completionTokens: cumulativeUsage.completionTokens,
-                  promptTokens: cumulativeUsage.promptTokens,
-                  totalTokens: cumulativeUsage.totalTokens,
-                },
-              });
-              dataStream.writeData({
-                type: 'progress',
-                label: 'response',
-                status: 'complete',
-                order: progressCounter++,
-                message: 'Response Generated',
-              } satisfies ProgressAnnotation);
-              await new Promise((resolve) => setTimeout(resolve, 0));
-
-              // stream.close();
-              return;
-            }
-
-            continueSegmentCount++;
-
-            if (continueSegmentCount > MAX_RESPONSE_SEGMENTS) {
-              logger.warn(`Auto-continue limit reached (${MAX_RESPONSE_SEGMENTS} segments). Stopping.`);
-              dataStream.writeData({
-                type: 'progress',
-                label: 'response',
-                status: 'error',
-                order: progressCounter++,
-                message: `Response was truncated after ${MAX_RESPONSE_SEGMENTS} segments. The project may be incomplete — try asking the AI to continue.`,
-              } satisfies ProgressAnnotation);
-              streamRecovery.stop();
-              return;
-            }
-
-            const switchesLeft = MAX_RESPONSE_SEGMENTS - continueSegmentCount;
-
-            logger.info(`Reached token limit, auto-continuing segment ${continueSegmentCount}/${MAX_RESPONSE_SEGMENTS} (${switchesLeft} remaining)`);
-
-            const lastUserMessage = processedMessages.filter((x) => x.role === 'user').slice(-1)[0];
-            const { model, provider } = extractPropertiesFromMessage(lastUserMessage);
-            processedMessages.push({ id: generateId(), role: 'assistant', content });
-            processedMessages.push({
-              id: generateId(),
-              role: 'user',
-              content: `[Model: ${model}]\n\n[Provider: ${provider}]\n\n${CONTINUE_PROMPT}`,
-            });
-
-            const result = await streamText({
-              messages: [...processedMessages],
-              env: context.cloudflare?.env,
-              options,
-              apiKeys,
-              files,
-              providerSettings,
-              promptId,
-              contextOptimization,
-              contextFiles: filteredFiles,
-              chatMode,
-              designScheme,
-              summary,
-              messageSliceId,
-            });
-
-            result.mergeIntoDataStream(dataStream);
-
-            (async () => {
-              for await (const part of result.fullStream) {
-                streamRecovery.updateActivity();
-
-                if (part.type === 'error') {
-                  const error: any = part.error;
-                  logger.error(`Streaming error in continue segment ${continueSegmentCount}:`, error);
-
-                  try {
-                    ds.writeData({
-                      type: 'progress',
-                      label: 'response',
-                      status: 'error',
-                      order: progressCounter++,
-                      message: `Streaming error on continue: ${error.message || 'Unknown error'}`,
-                    } satisfies ProgressAnnotation);
-                  } catch { /* stream may already be closed */ }
-
-                  streamRecovery.stop();
-                  return;
-                }
-              }
-              streamRecovery.stop();
-            })();
-
-            return;
           },
         };
 
@@ -407,53 +284,140 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
           message: 'Generating Response',
         } satisfies ProgressAnnotation);
 
-        const result = await streamText({
-          messages: [...processedMessages],
-          env: context.cloudflare?.env,
-          options,
-          apiKeys,
-          files,
-          providerSettings,
-          promptId,
-          contextOptimization,
-          contextFiles: filteredFiles,
-          chatMode,
-          designScheme,
-          summary,
-          messageSliceId,
-        });
+        let currentMessages = [...processedMessages];
+        let continueSegmentCount = 0;
 
-        (async () => {
-          for await (const part of result.fullStream) {
-            streamRecovery.updateActivity();
+        /*
+         * MAIN GENERATION LOOP
+         * ====================
+         * Each iteration: call streamText → await mergeIntoDataStream →
+         * check finishReason → continue or break.
+         *
+         * Key fix: we use a SINGLE consumer (mergeIntoDataStream) for the
+         * stream. The old code also ran a `for await (result.fullStream)`
+         * loop concurrently, which raced with mergeIntoDataStream for the
+         * same ReadableStream — causing data loss and silent cutoffs.
+         */
+        while (true) {
+          const result = await streamText({
+            messages: [...currentMessages],
+            env: context.cloudflare?.env,
+            options: streamOptions,
+            apiKeys,
+            files,
+            providerSettings,
+            promptId,
+            contextOptimization,
+            contextFiles: filteredFiles,
+            chatMode,
+            designScheme,
+            summary,
+            messageSliceId,
+          });
 
-            if (part.type === 'error') {
-              const error: any = part.error;
-              logger.error('Streaming error:', error);
-              streamRecovery.stop();
+          /*
+           * mergeIntoDataStream is void (fire-and-forget).  Internally
+           * it calls writer.merge() which pushes a promise onto
+           * createDataStream's ongoingStreamPromises array.  The
+           * createDataStream keeps the response stream open until
+           * every promise in that array resolves.
+           *
+           * The result promises (text, finishReason, usage) are
+           * ResolvablePromises resolved by the SDK's internal
+           * generation loop — they do NOT depend on the merge.
+           * We await them here to know when the generation is done
+           * and what the outcome was.
+           */
+          result.mergeIntoDataStream(dataStream);
 
-              /*
-               * Notify the client so it can show a clear error instead of
-               * silently swallowing the failure.
-               */
-              try {
-                ds.writeData({
-                  type: 'progress',
-                  label: 'response',
-                  status: 'error',
-                  order: progressCounter++,
-                  message: `Streaming error: ${error.message || 'Unknown error'}`,
-                } satisfies ProgressAnnotation);
-              } catch { /* stream may already be closed */ }
+          let finishReason: string;
+          let text: string;
+          let usage: any;
 
-              return;
+          try {
+            [finishReason, text, usage] = await Promise.all([
+              result.finishReason as Promise<string>,
+              result.text as Promise<string>,
+              result.usage as Promise<any>,
+            ]);
+          } catch (resultError: any) {
+            logger.error(`Stream result error in segment ${continueSegmentCount + 1}: ${resultError.message}`);
+            try {
+              dataStream.writeData({
+                type: 'progress',
+                label: 'response',
+                status: 'error',
+                order: progressCounter++,
+                message: `Stream error: ${resultError.message || 'Unknown error'}`,
+              } satisfies ProgressAnnotation);
+            } catch {
+              /* dataStream may already be closed */
             }
+            streamRecovery?.stop();
+            break;
           }
-          streamRecovery.stop();
-        })();
-        result.mergeIntoDataStream(dataStream);
+
+          logger.debug(`Segment ${continueSegmentCount + 1} finished: reason=${finishReason}, textLen=${text.length}`);
+
+          if (usage) {
+            cumulativeUsage.completionTokens += usage.completionTokens || 0;
+            cumulativeUsage.promptTokens += usage.promptTokens || 0;
+            cumulativeUsage.totalTokens += usage.totalTokens || 0;
+          }
+
+          /* Normal completion — no token limit hit */
+          if (finishReason !== 'length') {
+            streamRecovery?.stop();
+            dataStream.writeMessageAnnotation({
+              type: 'usage',
+              value: {
+                completionTokens: cumulativeUsage.completionTokens,
+                promptTokens: cumulativeUsage.promptTokens,
+                totalTokens: cumulativeUsage.totalTokens,
+              },
+            });
+            dataStream.writeData({
+              type: 'progress',
+              label: 'response',
+              status: 'complete',
+              order: progressCounter++,
+              message: 'Response Generated',
+            } satisfies ProgressAnnotation);
+            break;
+          }
+
+          /* Token limit hit — auto-continue */
+          continueSegmentCount++;
+
+          if (continueSegmentCount > MAX_RESPONSE_SEGMENTS) {
+            logger.warn(`Auto-continue limit reached (${MAX_RESPONSE_SEGMENTS} segments). Stopping.`);
+            dataStream.writeData({
+              type: 'progress',
+              label: 'response',
+              status: 'error',
+              order: progressCounter++,
+              message: `Response was truncated after ${MAX_RESPONSE_SEGMENTS} segments. The project may be incomplete — try asking the AI to continue.`,
+            } satisfies ProgressAnnotation);
+            streamRecovery?.stop();
+            break;
+          }
+
+          const switchesLeft = MAX_RESPONSE_SEGMENTS - continueSegmentCount;
+          logger.info(`Reached token limit, auto-continuing segment ${continueSegmentCount}/${MAX_RESPONSE_SEGMENTS} (${switchesLeft} remaining)`);
+
+          const lastUserMessage = processedMessages.filter((x) => x.role === 'user').slice(-1)[0];
+          const { model, provider } = extractPropertiesFromMessage(lastUserMessage);
+          currentMessages.push({ id: generateId(), role: 'assistant', content: text });
+          currentMessages.push({
+            id: generateId(),
+            role: 'user',
+            content: `[Model: ${model}]\n\n[Provider: ${provider}]\n\n${CONTINUE_PROMPT}`,
+          });
+        }
       },
       onError: (error: any) => {
+        streamRecovery?.stop();
+
         // Provide more specific error messages for common issues
         const errorMessage = error.message || 'Unknown error';
 
@@ -490,6 +454,12 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
     }).pipeThrough(
       new TransformStream({
         transform: (chunk, controller) => {
+          /*
+           * Every chunk that passes through here means data is actively
+           * flowing to the client — keep the recovery timer alive.
+           */
+          streamRecovery?.updateActivity();
+
           if (!lastChunk) {
             lastChunk = ' ';
           }
@@ -535,6 +505,8 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
       },
     });
   } catch (error: any) {
+    /* streamRecovery is only assigned inside execute(); if we're here,
+       execute never ran or threw before the assignment, so it's null. */
     logger.error(error);
 
     const errorResponse = {
