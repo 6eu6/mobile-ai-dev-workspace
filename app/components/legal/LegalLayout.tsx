@@ -66,7 +66,7 @@ export function LegalLayout({ title, updated, children }: { title: string; updat
               target="_blank"
               rel="noreferrer"
             >
-              bolt.diy
+              Palmkit
             </a>{' '}
             codebase.
           </p>

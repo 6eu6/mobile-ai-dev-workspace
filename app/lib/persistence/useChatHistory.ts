@@ -45,6 +45,39 @@ export const description = atom<string | undefined>(undefined);
 export const chatMetadata = atom<IChatMetadata | undefined>(undefined);
 
 /**
+ * Generate a smart, short title from the user's first message.
+ * Strips model/provider tags, takes the core intent, and caps at 50 chars.
+ */
+function generateSmartTitle(content: string): string {
+  // Strip model/provider tags like [Model: xxx] [Provider: xxx]
+  let cleaned = content.replace(/\[Model:.*?\]/g, '').replace(/\[Provider:.*?\]/g, '').trim();
+
+  // Strip common prefixes users type
+  cleaned = cleaned.replace(/^(please\s+)?(can\s+you\s+|could\s+you\s+|i\s+want\s+|i\s+need\s+|build\s+me\s+|create\s+me\s+|make\s+me\s+)/i, '');
+
+  // Take first meaningful line only
+  const firstLine = cleaned.split('\n')[0].trim();
+
+  // If it starts with a verb, keep it; otherwise add "Build" context
+  const startsWithVerb = /^(build|create|make|design|develop|write|add|fix|update|implement|set\s?up|configure)/i.test(firstLine);
+
+  let title = firstLine;
+
+  if (!startsWithVerb && firstLine.length > 0) {
+    // Try to extract the subject
+    const subject = firstLine.length > 45 ? firstLine.slice(0, 42) + '...' : firstLine;
+    title = subject;
+  }
+
+  // Cap at 50 chars for clean display
+  if (title.length > 50) {
+    title = title.slice(0, 47) + '...';
+  }
+
+  return title || 'New Chat';
+}
+
+/**
  * Debounce utility for snapshot saves during streaming.
  * Prevents excessive IndexedDB writes while ensuring data is persisted frequently enough.
  */
@@ -224,7 +257,7 @@ export function useChatHistory() {
                 {
                   id: storedMessages.messages[snapshotIndex].id,
                   role: 'assistant',
-                  content: `Bolt Restored your chat from a snapshot. You can revert this message to load the full chat history.
+                  content: `Palmkit Restored your chat from a snapshot. You can revert this message to load the full chat history.
                   <boltArtifact id="restored-project-setup" title="Restored Project & Setup" type="bundled">
                   ${Object.entries(snapshot?.files || {})
                     .map(([key, value]) => {
@@ -313,7 +346,7 @@ ${value.content}
               {
                 id: validSnapshot.chatIndex || generateId(),
                 role: 'assistant',
-                content: `Bolt Restored your chat from a snapshot (generation was interrupted). You can continue from here.
+                content: `Palmkit Restored your chat from a snapshot (generation was interrupted). You can continue from here.
                   <boltArtifact id="restored-project-setup" title="Restored Project & Setup" type="bundled">
                   ${Object.entries(validSnapshot.files || {})
                     .map(([key, value]) => {
@@ -523,7 +556,7 @@ ${value.content}
           const firstUserMsg = messages.find((m) => m.role === 'user');
 
           if (firstUserMsg && typeof firstUserMsg.content === 'string') {
-            const desc = firstUserMsg.content.slice(0, 80).replace(/\n/g, ' ').trim();
+            const desc = generateSmartTitle(firstUserMsg.content);
 
             if (desc) {
               description.set(desc);

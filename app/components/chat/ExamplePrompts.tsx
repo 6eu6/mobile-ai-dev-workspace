@@ -2,7 +2,7 @@ import React from 'react';
 import { classNames } from '~/utils/classNames';
 
 const EXAMPLE_PROMPTS = [
-  { text: 'Create a mobile app about bolt.diy', icon: 'i-ph:device-mobile', mobile: true },
+  { text: 'Create a mobile app about Palmkit', icon: 'i-ph:device-mobile', mobile: true },
   { text: 'Build a todo app in React using Tailwind', icon: 'i-ph:check-square', mobile: true },
   { text: 'Build a simple blog using Astro', icon: 'i-ph:article', mobile: false },
   { text: 'Create a cookie consent form using Material UI', icon: 'i-ph:cookie', mobile: false },
