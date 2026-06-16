@@ -1,8 +1,17 @@
-# Cloudflare Pages redirects — processed BEFORE static files.
+# Cloudflare Pages redirects — processed BEFORE static assets & Functions.
 #
-# The root URL "/" is served directly by the Remix Function (functions/[[path]].ts)
-# via app/routes/_index.tsx. No static index.html exists in the build output, so
-# the Function always handles "/".
+# WHY: a stale static index.html (left over from the old Next.js deployment)
+# kept being served at "/" because Cloudflare prioritises static assets over
+# the Pages Function. _redirects rules run FIRST, so a rewrite here always wins.
 #
-# Backward-compat: anyone who bookmarked the old /home route is forwarded to /.
+# Rule 1 — rewrite "/" to the "/home" Function route. The URL in the browser
+#          stays "palmkit.app/" (200 = silent proxy, not a redirect). The
+#          Function (functions/[[path]].ts → app/routes/home.tsx) renders the
+#          Landing for logged-out visitors and the Chat for logged-in ones.
+/ /home 200
+
+# Rule 2 — anyone who bookmarked "/home" during the previous band-aid is
+#          forwarded to the clean "/" URL. (Does NOT loop: rewrites do not
+#          re-evaluate _redirects rules, so the internal proxy from rule 1
+#          never hits this rule.)
 /home / 302
