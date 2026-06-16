@@ -53,3 +53,8 @@ docs/instructions/Roadmap.md
 
 # Local MCP server config (project-scoped, per-developer)
 .mcp.json
+
+# Agent sandbox artifacts — temporary tool outputs & uploaded screenshots.
+# Never belong in the repository.
+tool-results/
+upload/
