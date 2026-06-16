@@ -63,8 +63,10 @@ export default function Login() {
 
   return (
     <AuthLayout title="Welcome back" subtitle="Log in to keep your projects and key in sync.">
-      <Form method="post" className="flex flex-col gap-3">
+      {/* OAuth form — uses reloadDocument so external redirects (GitHub/X) work */}
+      <Form method="post" reloadDocument className="flex flex-col gap-3">
         <input type="hidden" name="redirectTo" value={redirectTo} />
+        <input type="hidden" name="intent" value="" />
         <button
           type="submit"
           name="intent"
@@ -73,7 +75,7 @@ export default function Login() {
           className="w-full h-11 rounded-xl font-medium text-sm flex items-center justify-center gap-2 border border-bolt-elements-borderColor text-bolt-elements-textPrimary bg-bolt-elements-bg-depth-2 hover:bg-bolt-elements-bg-depth-3 transition-colors disabled:opacity-60"
         >
           <span className="i-ph:github-logo-fill text-lg" />
-          {busy ? 'Redirecting…' : 'Continue with GitHub'}
+          Continue with GitHub
         </button>
 
         <button
@@ -84,14 +86,19 @@ export default function Login() {
           className="w-full h-11 rounded-xl font-medium text-sm flex items-center justify-center gap-2 border border-bolt-elements-borderColor text-bolt-elements-textPrimary bg-bolt-elements-bg-depth-2 hover:bg-bolt-elements-bg-depth-3 transition-colors disabled:opacity-60"
         >
           <span className="i-ph:x-logo-fill text-lg" />
-          {busy ? 'Redirecting…' : 'Continue with X'}
+          Continue with X
         </button>
+      </Form>
 
-        <div className="flex items-center gap-3 my-1">
-          <div className="h-px flex-1 bg-bolt-elements-borderColor" />
-          <span className="text-[11px] text-bolt-elements-textTertiary">or</span>
-          <div className="h-px flex-1 bg-bolt-elements-borderColor" />
-        </div>
+      <div className="flex items-center gap-3 my-4">
+        <div className="h-px flex-1 bg-bolt-elements-borderColor" />
+        <span className="text-[11px] text-bolt-elements-textTertiary">or</span>
+        <div className="h-px flex-1 bg-bolt-elements-borderColor" />
+      </div>
+
+      {/* Email/password form — stays as client-side Remix form for inline error display */}
+      <Form method="post" className="flex flex-col gap-3">
+        <input type="hidden" name="redirectTo" value={redirectTo} />
 
         <AuthInput
           label="Email"

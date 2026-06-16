@@ -78,7 +78,7 @@ export function AuthModal() {
           </p>
         </div>
 
-        <Form method="post" action="/login" className="flex flex-col gap-2.5">
+        <Form method="post" action="/login" reloadDocument className="flex flex-col gap-2.5">
           <input type="hidden" name="redirectTo" value={redirectTo} />
           <button type="submit" name="intent" value="github" className={oauthBtn}>
             <span className="i-ph:github-logo-fill text-lg" />
