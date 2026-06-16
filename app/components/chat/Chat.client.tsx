@@ -12,6 +12,7 @@ import { DEFAULT_MODEL, DEFAULT_PROVIDER, PROMPT_COOKIE_KEY, PROVIDER_LIST } fro
 import { cubicEasingFn } from '~/utils/easings';
 import { createScopedLogger, renderLogger } from '~/utils/logger';
 import { BaseChat } from './BaseChat';
+import { PENDING_PROMPT_KEY } from '~/components/landing/LandingPromptBox';
 import Cookies from 'js-cookie';
 import { debounce } from '~/utils/debounce';
 import { useSettings } from '~/lib/hooks/useSettings';
@@ -223,7 +224,26 @@ export const ChatImpl = memo(
       initialInput: Cookies.get(PROMPT_COOKIE_KEY) || '',
     });
     useEffect(() => {
-      const prompt = searchParams.get('prompt');
+      // Pick up a prompt stashed by the landing page (lovable-style flow) — a
+      // logged-out visitor types their idea into LandingPromptBox, we store it
+      // in sessionStorage, send them through login, and resume here. Falls back
+      // to a ?prompt= URL param for the no-sessionStorage case.
+      let prompt = '';
+
+      try {
+        const stored = sessionStorage.getItem(PENDING_PROMPT_KEY);
+
+        if (stored) {
+          prompt = stored;
+          sessionStorage.removeItem(PENDING_PROMPT_KEY);
+        }
+      } catch {
+        /* sessionStorage unavailable (private mode, etc.) — fall back to URL. */
+      }
+
+      if (!prompt) {
+        prompt = searchParams.get('prompt') ?? '';
+      }
 
       if (prompt) {
         setSearchParams({});

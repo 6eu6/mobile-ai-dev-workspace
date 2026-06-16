@@ -1,5 +1,6 @@
 import { Link } from '@remix-run/react';
 import type { ReactNode } from 'react';
+import { LandingPromptBox } from './LandingPromptBox';
 
 /**
  * Marketing landing page shown to logged-out visitors at "/". Mobile-first,
@@ -135,28 +136,27 @@ function Hero() {
         your browser, on any device.
       </p>
 
-      {/* CTA buttons */}
-      <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
-        <Link
-          to="/signup"
-          className="w-full sm:w-auto h-12 px-7 flex items-center justify-center rounded-xl text-sm font-semibold text-white transition-all active:scale-[0.97] hover:shadow-xl"
-          style={{
-            background: `linear-gradient(135deg, ${TEAL} 0%, ${TEAL_DARK} 140%)`,
-            boxShadow: `0 8px 30px ${TEAL_GLOW}`,
-          }}
-        >
-          Start building — it's free
-        </Link>
+      {/* Lovable-style prompt box — the primary call to action */}
+      <div className="mt-8 sm:mt-10">
+        <LandingPromptBox />
+      </div>
+
+      {/* Secondary auth links for returning visitors */}
+      <div className="mt-6 flex items-center justify-center gap-4 text-sm">
         <Link
           to="/login"
-          className="w-full sm:w-auto h-12 px-7 flex items-center justify-center rounded-xl text-sm font-semibold border text-bolt-elements-textPrimary hover:bg-bolt-elements-background-depth-2 transition-colors"
+          className="h-9 px-5 flex items-center rounded-lg font-semibold border text-bolt-elements-textPrimary hover:bg-bolt-elements-background-depth-2 transition-colors"
           style={{ borderColor: 'rgba(0, 168, 181, 0.2)' }}
         >
           Log in
         </Link>
+        <Link
+          to="/signup"
+          className="h-9 px-5 flex items-center rounded-lg font-semibold text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary transition-colors"
+        >
+          Create an account
+        </Link>
       </div>
-
-      <p className="mt-4 text-xs text-bolt-elements-textTertiary">Bring your own AI key · No credit card · Deploy in seconds</p>
 
       {/* Hero mockup */}
       <div className="mx-auto mt-12 max-w-4xl relative">

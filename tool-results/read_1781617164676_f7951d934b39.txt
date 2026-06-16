@@ -1,0 +1,813 @@
+     1→import { useStore } from '@nanostores/react';
+     2→import type { Message } from 'ai';
+     3→import { useChat } from '@ai-sdk/react';
+     4→import { useAnimate } from 'framer-motion';
+     5→import { memo, useCallback, useEffect, useRef, useState } from 'react';
+     6→import { toast } from 'react-toastify';
+     7→import { useMessageParser, usePromptEnhancer, useShortcuts } from '~/lib/hooks';
+     8→import { description, useChatHistory } from '~/lib/persistence';
+     9→import { chatStore } from '~/lib/stores/chat';
+    10→import { workbenchStore } from '~/lib/stores/workbench';
+    11→import { DEFAULT_MODEL, DEFAULT_PROVIDER, PROMPT_COOKIE_KEY, PROVIDER_LIST } from '~/utils/constants';
+    12→import { cubicEasingFn } from '~/utils/easings';
+    13→import { createScopedLogger, renderLogger } from '~/utils/logger';
+    14→import { BaseChat } from './BaseChat';
+    15→import Cookies from 'js-cookie';
+    16→import { debounce } from '~/utils/debounce';
+    17→import { useSettings } from '~/lib/hooks/useSettings';
+    18→import type { ProviderInfo } from '~/types/model';
+    19→import { useSearchParams } from '@remix-run/react';
+    20→import { createSampler } from '~/utils/sampler';
+    21→import { getTemplates, selectStarterTemplate } from '~/utils/selectStarterTemplate';
+    22→import { isMemoryConstrainedDevice } from '~/lib/sandbox/remoteSandbox';
+    23→import { logStore } from '~/lib/stores/logs';
+    24→import { streamingState } from '~/lib/stores/streaming';
+    25→import { filesToArtifacts } from '~/utils/fileUtils';
+    26→import { supabaseConnection } from '~/lib/stores/supabase';
+    27→import { defaultDesignScheme, type DesignScheme } from '~/types/design-scheme';
+    28→import type { ElementInfo } from '~/components/workbench/Inspector';
+    29→import type { TextUIPart, FileUIPart, Attachment } from '@ai-sdk/ui-utils';
+    30→import { useMCPStore } from '~/lib/stores/mcp';
+    31→import type { LlmErrorAlertType } from '~/types/actions';
+    32→import type { FileMap } from '~/lib/stores/files';
+    33→import { RestoreOverlay } from '~/components/ui/RestoreOverlay';
+    34→import { GenerationStatusBar } from '~/components/ui/GenerationStatusBar';
+    35→import { ProjectList } from '~/components/ui/ProjectList';
+    36→import { setGenerationStep, resetGenerationStatus, generationStatusStore } from '~/lib/stores/generationStatus';
+    37→
+    38→const logger = createScopedLogger('Chat');
+    39→
+    40→export function Chat() {
+    41→  renderLogger.trace('Chat');
+    42→
+    43→  const { ready, initialMessages, storeMessageHistory, importChat, exportChat, takeDebouncedSnapshot } =
+    44→    useChatHistory();
+    45→  const title = useStore(description);
+    46→  const [projectListOpen, setProjectListOpen] = useState(false);
+    47→  useEffect(() => {
+    48→    workbenchStore.setReloadedMessages(initialMessages.map((m) => m.id));
+    49→  }, [initialMessages]);
+    50→
+    51→  return (
+    52→    <>
+    53→      <RestoreOverlay />
+    54→      {ready && (
+    55→        <ChatImpl
+    56→          description={title}
+    57→          initialMessages={initialMessages}
+    58→          exportChat={exportChat}
+    59→          storeMessageHistory={storeMessageHistory}
+    60→          importChat={importChat}
+    61→          takeDebouncedSnapshot={takeDebouncedSnapshot}
+    62→          onOpenProjectList={() => setProjectListOpen(true)}
+    63→        />
+    64→      )}
+    65→      <ProjectList open={projectListOpen} onClose={() => setProjectListOpen(false)} />
+    66→    </>
+    67→  );
+    68→}
+    69→
+    70→const processSampledMessages = createSampler(
+    71→  (options: {
+    72→    messages: Message[];
+    73→    initialMessages: Message[];
+    74→    isLoading: boolean;
+    75→    parseMessages: (messages: Message[], isLoading: boolean) => void;
+    76→    storeMessageHistory: (messages: Message[]) => Promise<void>;
+    77→  }) => {
+    78→    const { messages, initialMessages, isLoading, parseMessages, storeMessageHistory } = options;
+    79→    parseMessages(messages, isLoading);
+    80→
+    81→    if (messages.length > initialMessages.length) {
+    82→      storeMessageHistory(messages).catch((error) => toast.error(error.message));
+    83→    }
+    84→  },
+    85→  50,
+    86→);
+    87→
+    88→interface ChatProps {
+    89→  initialMessages: Message[];
+    90→  storeMessageHistory: (messages: Message[]) => Promise<void>;
+    91→  importChat: (description: string, messages: Message[]) => Promise<void>;
+    92→  exportChat: () => void;
+    93→  description?: string;
+    94→  takeDebouncedSnapshot: (chatIdx: string, files: FileMap, chatSummary?: string) => Promise<void>;
+    95→  onOpenProjectList: () => void;
+    96→}
+    97→
+    98→export const ChatImpl = memo(
+    99→  ({
+   100→    description,
+   101→    initialMessages,
+   102→    storeMessageHistory,
+   103→    importChat,
+   104→    exportChat,
+   105→    takeDebouncedSnapshot,
+   106→    onOpenProjectList,
+   107→  }: ChatProps) => {
+   108→    useShortcuts();
+   109→
+   110→    const textareaRef = useRef<HTMLTextAreaElement>(null);
+   111→    const [chatStarted, setChatStarted] = useState(initialMessages.length > 0);
+   112→    const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
+   113→    const [imageDataList, setImageDataList] = useState<string[]>([]);
+   114→    const [searchParams, setSearchParams] = useSearchParams();
+   115→    const [fakeLoading, setFakeLoading] = useState(false);
+   116→    const files = useStore(workbenchStore.files);
+   117→    const [designScheme, setDesignScheme] = useState<DesignScheme>(defaultDesignScheme);
+   118→    const actionAlert = useStore(workbenchStore.alert);
+   119→    const deployAlert = useStore(workbenchStore.deployAlert);
+   120→    const supabaseConn = useStore(supabaseConnection);
+   121→    const selectedProject = supabaseConn.stats?.projects?.find(
+   122→      (project) => project.id === supabaseConn.selectedProjectId,
+   123→    );
+   124→    const supabaseAlert = useStore(workbenchStore.supabaseAlert);
+   125→    const { activeProviders, promptId, autoSelectTemplate, contextOptimizationEnabled } = useSettings();
+   126→    const [llmErrorAlert, setLlmErrorAlert] = useState<LlmErrorAlertType | undefined>(undefined);
+   127→    const [model, setModel] = useState(() => {
+   128→      const savedModel = Cookies.get('selectedModel');
+   129→      return savedModel || DEFAULT_MODEL;
+   130→    });
+   131→    const [provider, setProvider] = useState(() => {
+   132→      const savedProvider = Cookies.get('selectedProvider');
+   133→      return (PROVIDER_LIST.find((p) => p.name === savedProvider) || DEFAULT_PROVIDER) as ProviderInfo;
+   134→    });
+   135→    const { showChat } = useStore(chatStore);
+   136→    const [animationScope, animate] = useAnimate();
+   137→
+   138→    /*
+   139→     * B) Provider/settings restore: Load API keys synchronously from cookies
+   140→     * to avoid "No providers enabled" flash after refresh.
+   141→     */
+   142→    const [apiKeys] = useState<Record<string, string>>(() => {
+   143→      try {
+   144→        const storedApiKeys = Cookies.get('apiKeys');
+   145→
+   146→        if (storedApiKeys) {
+   147→          return JSON.parse(storedApiKeys);
+   148→        }
+   149→      } catch {
+   150→        // ignore parse errors
+   151→      }
+   152→
+   153→      return {};
+   154→    });
+   155→    const [chatMode, setChatMode] = useState<'discuss' | 'build'>('build');
+   156→    const [selectedElement, setSelectedElement] = useState<ElementInfo | null>(null);
+   157→    const mcpSettings = useMCPStore((state) => state.settings);
+   158→
+   159→    const {
+   160→      messages,
+   161→      isLoading,
+   162→      input,
+   163→      handleInputChange,
+   164→      setInput,
+   165→      stop,
+   166→      append,
+   167→      setMessages,
+   168→      reload,
+   169→      error,
+   170→      data: chatData,
+   171→      setData,
+   172→      addToolResult,
+   173→    } = useChat({
+   174→      api: '/api/chat',
+   175→      body: {
+   176→        apiKeys,
+   177→        files,
+   178→        promptId,
+   179→        contextOptimization: contextOptimizationEnabled,
+   180→        chatMode,
+   181→        designScheme,
+   182→        supabase: {
+   183→          isConnected: supabaseConn.isConnected,
+   184→          hasSelectedProject: !!selectedProject,
+   185→          credentials: {
+   186→            supabaseUrl: supabaseConn?.credentials?.supabaseUrl,
+   187→            anonKey: supabaseConn?.credentials?.anonKey,
+   188→          },
+   189→        },
+   190→        maxLLMSteps: mcpSettings.maxLLMSteps,
+   191→      },
+   192→      sendExtraMessageFields: true,
+   193→      onError: (e) => {
+   194→        setFakeLoading(false);
+   195→        setGenerationStep('error');
+   196→        handleError(e, 'chat');
+   197→      },
+   198→      onFinish: (message, response) => {
+   199→        const usage = response.usage;
+   200→        setData(undefined);
+   201→        setGenerationStep('done');
+   202→
+   203→        // Auto-reset after 3 seconds
+   204→        setTimeout(() => {
+   205→          resetGenerationStatus();
+   206→        }, 3000);
+   207→
+   208→        if (usage) {
+   209→          console.log('Token usage:', usage);
+   210→          logStore.logProvider('Chat response completed', {
+   211→            component: 'Chat',
+   212→            action: 'response',
+   213→            model,
+   214→            provider: provider.name,
+   215→            usage,
+   216→            messageLength: message.content.length,
+   217→          });
+   218→        }
+   219→
+   220→        logger.debug('Finished streaming');
+   221→      },
+   222→      initialMessages,
+   223→      initialInput: Cookies.get(PROMPT_COOKIE_KEY) || '',
+   224→    });
+   225→    useEffect(() => {
+   226→      const prompt = searchParams.get('prompt');
+   227→
+   228→      if (prompt) {
+   229→        setSearchParams({});
+   230→        runAnimation();
+   231→        append({
+   232→          role: 'user',
+   233→          content: `[Model: ${model}]\n\n[Provider: ${provider.name}]\n\n${prompt}`,
+   234→        });
+   235→      }
+   236→    }, [model, provider, searchParams]);
+   237→
+   238→    /*
+   239→     * D) Generation status: Track streaming state and update generation step.
+   240→     * When streaming starts, show 'waiting-for-model'. When files appear, show 'creating-files'.
+   241→     */
+   242→    useEffect(() => {
+   243→      if (isLoading || fakeLoading) {
+   244→        const currentStep = generationStatusStore.get().step;
+   245→
+   246→        if (currentStep === 'idle') {
+   247→          setGenerationStep('waiting-for-model');
+   248→        }
+   249→
+   250→        const fileCount = Object.keys(files).length;
+   251→
+   252→        if (fileCount > 0 && currentStep === 'waiting-for-model') {
+   253→          setGenerationStep('creating-files');
+   254→        }
+   255→      }
+   256→    }, [isLoading, fakeLoading, files]);
+   257→
+   258→    const { enhancingPrompt, promptEnhanced, enhancePrompt, resetEnhancer } = usePromptEnhancer();
+   259→    const { parsedMessages, parseMessages } = useMessageParser();
+   260→
+   261→    const TEXTAREA_MAX_HEIGHT = chatStarted ? 400 : 200;
+   262→
+   263→    useEffect(() => {
+   264→      chatStore.setKey('started', initialMessages.length > 0);
+   265→    }, []);
+   266→
+   267→    useEffect(() => {
+   268→      processSampledMessages({
+   269→        messages,
+   270→        initialMessages,
+   271→        isLoading,
+   272→        parseMessages,
+   273→        storeMessageHistory,
+   274→      });
+   275→    }, [messages, isLoading, parseMessages]);
+   276→
+   277→    /**
+   278→     * FIX #3: Watch workbenchStore.files changes during streaming and save
+   279→     * debounced snapshots to IndexedDB. This ensures files are persisted even
+   280→     * if the user refreshes mid-generation.
+   281→     */
+   282→    const prevFilesRef = useRef<FileMap>({});
+   283→    useEffect(() => {
+   284→      const currentFiles = files;
+   285→
+   286→      if (isLoading && Object.keys(currentFiles).length > 0) {
+   287→        const lastMessageId = messages.length > 0 ? messages[messages.length - 1].id : '';
+   288→        const prevFiles = prevFilesRef.current;
+   289→
+   290→        // Only trigger debounced save if files have actually changed
+   291→        const filesChanged = JSON.stringify(currentFiles) !== JSON.stringify(prevFiles);
+   292→
+   293→        if (filesChanged && lastMessageId) {
+   294→          prevFilesRef.current = currentFiles;
+   295→          takeDebouncedSnapshot(lastMessageId, currentFiles).catch((err) => {
+   296→            console.error('Debounced snapshot save failed:', err);
+   297→          });
+   298→        }
+   299→      }
+   300→    }, [files, isLoading, messages, takeDebouncedSnapshot]);
+   301→
+   302→    /*
+   303→     * Persistence fix: the effect above only saves WHILE streaming, but file
+   304→     * actions (and registerFile on mobile) often finish AFTER streaming ends, so
+   305→     * the final/complete file set was never snapshotted — files vanished on
+   306→     * re-entry. Save a final snapshot when generation completes, plus a delayed
+   307→     * one to catch files written just after the stream closed.
+   308→     */
+   309→    const prevLoadingRef = useRef(isLoading);
+   310→    useEffect(() => {
+   311→      const justFinished = prevLoadingRef.current && !isLoading;
+   312→      prevLoadingRef.current = isLoading;
+   313→
+   314→      if (!justFinished) {
+   315→        return undefined;
+   316→      }
+   317→
+   318→      const saveFinal = () => {
+   319→        const finalFiles = workbenchStore.files.get();
+   320→        const lastMessageId = messages.length > 0 ? messages[messages.length - 1].id : '';
+   321→
+   322→        if (lastMessageId && Object.keys(finalFiles).length > 0) {
+   323→          takeDebouncedSnapshot(lastMessageId, finalFiles).catch((err) => {
+   324→            console.error('Final snapshot save failed:', err);
+   325→          });
+   326→        }
+   327→      };
+   328→
+   329→      saveFinal();
+   330→
+   331→      const t = setTimeout(saveFinal, 3000);
+   332→
+   333→      return () => clearTimeout(t);
+   334→    }, [isLoading, messages, takeDebouncedSnapshot]);
+   335→
+   336→    const scrollTextArea = () => {
+   337→      const textarea = textareaRef.current;
+   338→
+   339→      if (textarea) {
+   340→        textarea.scrollTop = textarea.scrollHeight;
+   341→      }
+   342→    };
+   343→
+   344→    const abort = () => {
+   345→      stop();
+   346→      chatStore.setKey('aborted', true);
+   347→      workbenchStore.abortAllActions();
+   348→
+   349→      logStore.logProvider('Chat response aborted', {
+   350→        component: 'Chat',
+   351→        action: 'abort',
+   352→        model,
+   353→        provider: provider.name,
+   354→      });
+   355→    };
+   356→
+   357→    const handleError = useCallback(
+   358→      (error: any, context: 'chat' | 'template' | 'llmcall' = 'chat') => {
+   359→        logger.error(`${context} request failed`, error);
+   360→
+   361→        stop();
+   362→        setFakeLoading(false);
+   363→
+   364→        let errorInfo = {
+   365→          message: 'An unexpected error occurred',
+   366→          isRetryable: true,
+   367→          statusCode: 500,
+   368→          provider: provider.name,
+   369→          type: 'unknown' as const,
+   370→          retryDelay: 0,
+   371→        };
+   372→
+   373→        if (error.message) {
+   374→          try {
+   375→            const parsed = JSON.parse(error.message);
+   376→
+   377→            if (parsed.error || parsed.message) {
+   378→              errorInfo = { ...errorInfo, ...parsed };
+   379→            } else {
+   380→              errorInfo.message = error.message;
+   381→            }
+   382→          } catch {
+   383→            errorInfo.message = error.message;
+   384→          }
+   385→        }
+   386→
+   387→        let errorType: LlmErrorAlertType['errorType'] = 'unknown';
+   388→        let title = 'Request Failed';
+   389→
+   390→        if (errorInfo.statusCode === 401 || errorInfo.message.toLowerCase().includes('api key')) {
+   391→          errorType = 'authentication';
+   392→          title = 'Authentication Error';
+   393→        } else if (errorInfo.statusCode === 429 || errorInfo.message.toLowerCase().includes('rate limit')) {
+   394→          errorType = 'rate_limit';
+   395→          title = 'Rate Limit Exceeded';
+   396→        } else if (errorInfo.message.toLowerCase().includes('quota')) {
+   397→          errorType = 'quota';
+   398→          title = 'Quota Exceeded';
+   399→        } else if (errorInfo.statusCode >= 500) {
+   400→          errorType = 'network';
+   401→          title = 'Server Error';
+   402→        }
+   403→
+   404→        logStore.logError(`${context} request failed`, error, {
+   405→          component: 'Chat',
+   406→          action: 'request',
+   407→          error: errorInfo.message,
+   408→          context,
+   409→          retryable: errorInfo.isRetryable,
+   410→          errorType,
+   411→          provider: provider.name,
+   412→        });
+   413→
+   414→        // Create API error alert
+   415→        setLlmErrorAlert({
+   416→          type: 'error',
+   417→          title,
+   418→          description: errorInfo.message,
+   419→          provider: provider.name,
+   420→          errorType,
+   421→        });
+   422→        setData([]);
+   423→      },
+   424→      [provider.name, stop],
+   425→    );
+   426→
+   427→    const clearApiErrorAlert = useCallback(() => {
+   428→      setLlmErrorAlert(undefined);
+   429→    }, []);
+   430→
+   431→    useEffect(() => {
+   432→      const textarea = textareaRef.current;
+   433→
+   434→      if (textarea) {
+   435→        textarea.style.height = 'auto';
+   436→
+   437→        const scrollHeight = textarea.scrollHeight;
+   438→
+   439→        textarea.style.height = `${Math.min(scrollHeight, TEXTAREA_MAX_HEIGHT)}px`;
+   440→        textarea.style.overflowY = scrollHeight > TEXTAREA_MAX_HEIGHT ? 'auto' : 'hidden';
+   441→      }
+   442→    }, [input, textareaRef]);
+   443→
+   444→    const runAnimation = async () => {
+   445→      if (chatStarted) {
+   446→        return;
+   447→      }
+   448→
+   449→      await Promise.all([
+   450→        animate('#examples', { opacity: 0, display: 'none' }, { duration: 0.1 }),
+   451→        animate('#intro', { opacity: 0, flex: 1 }, { duration: 0.2, ease: cubicEasingFn }),
+   452→      ]);
+   453→
+   454→      chatStore.setKey('started', true);
+   455→
+   456→      setChatStarted(true);
+   457→    };
+   458→
+   459→    // Helper function to create message parts array from text and images
+   460→    const createMessageParts = (text: string, images: string[] = []): Array<TextUIPart | FileUIPart> => {
+   461→      // Create an array of properly typed message parts
+   462→      const parts: Array<TextUIPart | FileUIPart> = [
+   463→        {
+   464→          type: 'text',
+   465→          text,
+   466→        },
+   467→      ];
+   468→
+   469→      // Add image parts if any
+   470→      images.forEach((imageData) => {
+   471→        // Extract correct MIME type from the data URL
+   472→        const mimeType = imageData.split(';')[0].split(':')[1] || 'image/jpeg';
+   473→
+   474→        // Create file part according to AI SDK format
+   475→        parts.push({
+   476→          type: 'file',
+   477→          mimeType,
+   478→          data: imageData.replace(/^data:image\/[^;]+;base64,/, ''),
+   479→        });
+   480→      });
+   481→
+   482→      return parts;
+   483→    };
+   484→
+   485→    // Helper function to convert File[] to Attachment[] for AI SDK
+   486→    const filesToAttachments = async (files: File[]): Promise<Attachment[] | undefined> => {
+   487→      if (files.length === 0) {
+   488→        return undefined;
+   489→      }
+   490→
+   491→      const attachments = await Promise.all(
+   492→        files.map(
+   493→          (file) =>
+   494→            new Promise<Attachment>((resolve) => {
+   495→              const reader = new FileReader();
+   496→
+   497→              reader.onloadend = () => {
+   498→                resolve({
+   499→                  name: file.name,
+   500→                  contentType: file.type,
+   501→                  url: reader.result as string,
+   502→                });
+   503→              };
+   504→              reader.readAsDataURL(file);
+   505→            }),
+   506→        ),
+   507→      );
+   508→
+   509→      return attachments;
+   510→    };
+   511→
+   512→    const sendMessage = async (_event: React.UIEvent, messageInput?: string) => {
+   513→      const messageContent = messageInput || input;
+   514→
+   515→      if (!messageContent?.trim()) {
+   516→        return;
+   517→      }
+   518→
+   519→      if (isLoading) {
+   520→        abort();
+   521→        return;
+   522→      }
+   523→
+   524→      let finalMessageContent = messageContent;
+   525→
+   526→      if (selectedElement) {
+   527→        console.log('Selected Element:', selectedElement);
+   528→
+   529→        const elementInfo = `<div class=\"__boltSelectedElement__\" data-element='${JSON.stringify(selectedElement)}'>${JSON.stringify(`${selectedElement.displayText}`)}</div>`;
+   530→        finalMessageContent = messageContent + elementInfo;
+   531→      }
+   532→
+   533→      runAnimation();
+   534→
+   535→      if (!chatStarted) {
+   536→        setFakeLoading(true);
+   537→
+   538→        /*
+   539→         * Skip the heavy starter-template clone on mobile: there we generate the
+   540→         * project directly and run it in the cloud sandbox (cleaner, no failing
+   541→         * in-browser install). Templates remain available on desktop.
+   542→         */
+   543→        if (autoSelectTemplate && !isMemoryConstrainedDevice()) {
+   544→          const { template, title } = await selectStarterTemplate({
+   545→            message: finalMessageContent,
+   546→            model,
+   547→            provider,
+   548→          });
+   549→
+   550→          if (template !== 'blank') {
+   551→            const temResp = await getTemplates(template, title).catch((e) => {
+   552→              if (e.message.includes('rate limit')) {
+   553→                toast.warning('Rate limit exceeded. Skipping starter template\n Continuing with blank template');
+   554→              } else {
+   555→                toast.warning('Failed to import starter template\n Continuing with blank template');
+   556→              }
+   557→
+   558→              return null;
+   559→            });
+   560→
+   561→            if (temResp) {
+   562→              const { assistantMessage, userMessage } = temResp;
+   563→              const userMessageText = `[Model: ${model}]\n\n[Provider: ${provider.name}]\n\n${finalMessageContent}`;
+   564→
+   565→              setMessages([
+   566→                {
+   567→                  id: `1-${new Date().getTime()}`,
+   568→                  role: 'user',
+   569→                  content: userMessageText,
+   570→                  parts: createMessageParts(userMessageText, imageDataList),
+   571→                },
+   572→                {
+   573→                  id: `2-${new Date().getTime()}`,
+   574→                  role: 'assistant',
+   575→                  content: assistantMessage,
+   576→                },
+   577→                {
+   578→                  id: `3-${new Date().getTime()}`,
+   579→                  role: 'user',
+   580→                  content: `[Model: ${model}]\n\n[Provider: ${provider.name}]\n\n${userMessage}`,
+   581→                  annotations: ['hidden'],
+   582→                },
+   583→              ]);
+   584→
+   585→              const reloadOptions =
+   586→                uploadedFiles.length > 0
+   587→                  ? { experimental_attachments: await filesToAttachments(uploadedFiles) }
+   588→                  : undefined;
+   589→
+   590→              reload(reloadOptions);
+   591→              setInput('');
+   592→              Cookies.remove(PROMPT_COOKIE_KEY);
+   593→
+   594→              setUploadedFiles([]);
+   595→              setImageDataList([]);
+   596→
+   597→              resetEnhancer();
+   598→
+   599→              textareaRef.current?.blur();
+   600→              setFakeLoading(false);
+   601→
+   602→              return;
+   603→            }
+   604→          }
+   605→        }
+   606→
+   607→        // If autoSelectTemplate is disabled or template selection failed, proceed with normal message
+   608→        const userMessageText = `[Model: ${model}]\n\n[Provider: ${provider.name}]\n\n${finalMessageContent}`;
+   609→        const attachments = uploadedFiles.length > 0 ? await filesToAttachments(uploadedFiles) : undefined;
+   610→
+   611→        setMessages([
+   612→          {
+   613→            id: `${new Date().getTime()}`,
+   614→            role: 'user',
+   615→            content: userMessageText,
+   616→            parts: createMessageParts(userMessageText, imageDataList),
+   617→            experimental_attachments: attachments,
+   618→          },
+   619→        ]);
+   620→        reload(attachments ? { experimental_attachments: attachments } : undefined);
+   621→        setFakeLoading(false);
+   622→        setInput('');
+   623→        Cookies.remove(PROMPT_COOKIE_KEY);
+   624→
+   625→        setUploadedFiles([]);
+   626→        setImageDataList([]);
+   627→
+   628→        resetEnhancer();
+   629→
+   630→        textareaRef.current?.blur();
+   631→
+   632→        return;
+   633→      }
+   634→
+   635→      if (error != null) {
+   636→        setMessages(messages.slice(0, -1));
+   637→      }
+   638→
+   639→      const modifiedFiles = workbenchStore.getModifiedFiles();
+   640→
+   641→      chatStore.setKey('aborted', false);
+   642→
+   643→      if (modifiedFiles !== undefined) {
+   644→        const userUpdateArtifact = filesToArtifacts(modifiedFiles, `${Date.now()}`);
+   645→        const messageText = `[Model: ${model}]\n\n[Provider: ${provider.name}]\n\n${userUpdateArtifact}${finalMessageContent}`;
+   646→
+   647→        const attachmentOptions =
+   648→          uploadedFiles.length > 0 ? { experimental_attachments: await filesToAttachments(uploadedFiles) } : undefined;
+   649→
+   650→        append(
+   651→          {
+   652→            role: 'user',
+   653→            content: messageText,
+   654→            parts: createMessageParts(messageText, imageDataList),
+   655→          },
+   656→          attachmentOptions,
+   657→        );
+   658→
+   659→        workbenchStore.resetAllFileModifications();
+   660→      } else {
+   661→        const messageText = `[Model: ${model}]\n\n[Provider: ${provider.name}]\n\n${finalMessageContent}`;
+   662→
+   663→        const attachmentOptions =
+   664→          uploadedFiles.length > 0 ? { experimental_attachments: await filesToAttachments(uploadedFiles) } : undefined;
+   665→
+   666→        append(
+   667→          {
+   668→            role: 'user',
+   669→            content: messageText,
+   670→            parts: createMessageParts(messageText, imageDataList),
+   671→          },
+   672→          attachmentOptions,
+   673→        );
+   674→      }
+   675→
+   676→      setInput('');
+   677→      Cookies.remove(PROMPT_COOKIE_KEY);
+   678→
+   679→      setUploadedFiles([]);
+   680→      setImageDataList([]);
+   681→
+   682→      resetEnhancer();
+   683→
+   684→      textareaRef.current?.blur();
+   685→    };
+   686→
+   687→    /**
+   688→     * Handles the change event for the textarea and updates the input state.
+   689→     * @param event - The change event from the textarea.
+   690→     */
+   691→    const onTextareaChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
+   692→      handleInputChange(event);
+   693→    };
+   694→
+   695→    /**
+   696→     * Debounced function to cache the prompt in cookies.
+   697→     * Caches the trimmed value of the textarea input after a delay to optimize performance.
+   698→     */
+   699→    const debouncedCachePrompt = useCallback(
+   700→      debounce((event: React.ChangeEvent<HTMLTextAreaElement>) => {
+   701→        const trimmedValue = event.target.value.trim();
+   702→        Cookies.set(PROMPT_COOKIE_KEY, trimmedValue, { expires: 30 });
+   703→      }, 1000),
+   704→      [],
+   705→    );
+   706→
+   707→    const handleModelChange = (newModel: string) => {
+   708→      setModel(newModel);
+   709→      Cookies.set('selectedModel', newModel, { expires: 30 });
+   710→    };
+   711→
+   712→    const handleProviderChange = (newProvider: ProviderInfo) => {
+   713→      setProvider(newProvider);
+   714→      Cookies.set('selectedProvider', newProvider.name, { expires: 30 });
+   715→    };
+   716→
+   717→    const handleWebSearchResult = useCallback(
+   718→      (result: string) => {
+   719→        const currentInput = input || '';
+   720→        const newInput = currentInput.length > 0 ? `${result}\n\n${currentInput}` : result;
+   721→
+   722→        // Update the input via the same mechanism as handleInputChange
+   723→        const syntheticEvent = {
+   724→          target: { value: newInput },
+   725→        } as React.ChangeEvent<HTMLTextAreaElement>;
+   726→        handleInputChange(syntheticEvent);
+   727→      },
+   728→      [input, handleInputChange],
+   729→    );
+   730→
+   731→    return (
+   732→      <>
+   733→        {/* Desktop only — on mobile the unified bottom status bar (RemotePreviewTrigger) owns status. */}
+   734→        <div className="hidden sm:block">
+   735→          <GenerationStatusBar />
+   736→        </div>
+   737→        <BaseChat
+   738→          ref={animationScope}
+   739→          textareaRef={textareaRef}
+   740→          input={input}
+   741→          showChat={showChat}
+   742→          chatStarted={chatStarted}
+   743→          isStreaming={isLoading || fakeLoading}
+   744→          onStreamingChange={(streaming) => {
+   745→            streamingState.set(streaming);
+   746→          }}
+   747→          enhancingPrompt={enhancingPrompt}
+   748→          promptEnhanced={promptEnhanced}
+   749→          sendMessage={sendMessage}
+   750→          model={model}
+   751→          setModel={handleModelChange}
+   752→          provider={provider}
+   753→          setProvider={handleProviderChange}
+   754→          providerList={activeProviders}
+   755→          handleInputChange={(e) => {
+   756→            onTextareaChange(e);
+   757→            debouncedCachePrompt(e);
+   758→          }}
+   759→          handleStop={abort}
+   760→          description={description}
+   761→          importChat={importChat}
+   762→          exportChat={exportChat}
+   763→          messages={messages.map((message, i) => {
+   764→            if (message.role === 'user') {
+   765→              return message;
+   766→            }
+   767→
+   768→            return {
+   769→              ...message,
+   770→              content: parsedMessages[i] || '',
+   771→            };
+   772→          })}
+   773→          enhancePrompt={() => {
+   774→            enhancePrompt(
+   775→              input,
+   776→              (input) => {
+   777→                setInput(input);
+   778→                scrollTextArea();
+   779→              },
+   780→              model,
+   781→              provider,
+   782→              apiKeys,
+   783→            );
+   784→          }}
+   785→          uploadedFiles={uploadedFiles}
+   786→          setUploadedFiles={setUploadedFiles}
+   787→          imageDataList={imageDataList}
+   788→          setImageDataList={setImageDataList}
+   789→          actionAlert={actionAlert}
+   790→          clearAlert={() => workbenchStore.clearAlert()}
+   791→          supabaseAlert={supabaseAlert}
+   792→          clearSupabaseAlert={() => workbenchStore.clearSupabaseAlert()}
+   793→          deployAlert={deployAlert}
+   794→          clearDeployAlert={() => workbenchStore.clearDeployAlert()}
+   795→          llmErrorAlert={llmErrorAlert}
+   796→          clearLlmErrorAlert={clearApiErrorAlert}
+   797→          data={chatData}
+   798→          chatMode={chatMode}
+   799→          setChatMode={setChatMode}
+   800→          append={append}
+   801→          designScheme={designScheme}
+   802→          setDesignScheme={setDesignScheme}
+   803→          selectedElement={selectedElement}
+   804→          setSelectedElement={setSelectedElement}
+   805→          addToolResult={addToolResult}
+   806→          onWebSearchResult={handleWebSearchResult}
+   807→          onOpenProjectList={onOpenProjectList}
+   808→        />
+   809→      </>
+   810→    );
+   811→  },
+   812→);
+   813→

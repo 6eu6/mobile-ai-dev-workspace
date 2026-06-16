@@ -1,4 +1,8 @@
 # Cloudflare Pages redirects — processed BEFORE static files.
-# This bypasses any stale static index.html served at / from old deployments.
-# / is redirected to /home which is a Remix Function route (always dynamic).
-/ /home 302
+#
+# The root URL "/" is served directly by the Remix Function (functions/[[path]].ts)
+# via app/routes/_index.tsx. No static index.html exists in the build output, so
+# the Function always handles "/".
+#
+# Backward-compat: anyone who bookmarked the old /home route is forwarded to /.
+/home / 302
