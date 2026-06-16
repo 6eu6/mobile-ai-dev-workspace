@@ -335,6 +335,62 @@ export class StreamingMessageParser {
     this.#messages.clear();
   }
 
+  /**
+   * Force-finalize any open action or artifact across all tracked messages.
+   *
+   * When the stream ends (onFinish / onError) the parser may be in the middle
+   * of an unclosed `<boltAction>` — the LLM hit its token limit or the
+   * connection dropped.  Without this flush the file content is displayed in
+   * the editor but **never actually written** to the WebContainer / workbench.
+   *
+   * Call this from the chat `onFinish` and `onError` handlers.
+   */
+  finalize() {
+    for (const [messageId, state] of this.#messages) {
+      if (state.insideAction && state.currentArtifact) {
+        const currentAction = state.currentAction;
+
+        let content = currentAction.content?.trim() || '';
+
+        if ('type' in currentAction && currentAction.type === 'file') {
+          if (!currentAction.filePath?.endsWith('.md')) {
+            content = cleanoutMarkdownSyntax(content);
+            content = cleanEscapedTags(content);
+          }
+
+          content += '\n';
+        }
+
+        currentAction.content = content;
+
+        logger.info(`[finalize] flushing open action ${state.actionId - 1} for message ${messageId}`);
+
+        this._options.callbacks?.onActionClose?.({
+          artifactId: state.currentArtifact.id,
+          messageId,
+          actionId: String(state.actionId - 1),
+          action: currentAction as BoltAction,
+        });
+
+        state.insideAction = false;
+        state.currentAction = { content: '' };
+      }
+
+      if (state.insideArtifact && state.currentArtifact) {
+        logger.info(`[finalize] closing open artifact ${state.currentArtifact.id} for message ${messageId}`);
+
+        this._options.callbacks?.onArtifactClose?.({
+          messageId,
+          artifactId: state.currentArtifact.id,
+          ...state.currentArtifact,
+        });
+
+        state.insideArtifact = false;
+        state.currentArtifact = undefined;
+      }
+    }
+  }
+
   #parseActionTag(input: string, actionOpenIndex: number, actionEndIndex: number) {
     const actionTag = input.slice(actionOpenIndex, actionEndIndex + 1);
 

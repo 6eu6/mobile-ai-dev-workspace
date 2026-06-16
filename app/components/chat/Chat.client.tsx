@@ -4,7 +4,7 @@ import { useChat } from '@ai-sdk/react';
 import { useAnimate } from 'framer-motion';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'react-toastify';
-import { useMessageParser, usePromptEnhancer, useShortcuts } from '~/lib/hooks';
+import { useMessageParser, usePromptEnhancer, useShortcuts, finalizeMessageParser } from '~/lib/hooks';
 import { description, useChatHistory } from '~/lib/persistence';
 import { chatStore } from '~/lib/stores/chat';
 import { workbenchStore } from '~/lib/stores/workbench';
@@ -200,6 +200,9 @@ export const ChatImpl = memo(
         const usage = response.usage;
         setData(undefined);
         setGenerationStep('done');
+
+        // Finalize any open parser actions (files that were mid-stream)
+        finalizeMessageParser();
 
         // Auto-reset after 3 seconds
         setTimeout(() => {
@@ -442,7 +445,9 @@ export const ChatImpl = memo(
           provider: provider.name,
           errorType,
         });
-        setData([]);
+
+        // Finalize any open parser actions so files aren't lost
+        finalizeMessageParser();
       },
       [provider.name, stop],
     );

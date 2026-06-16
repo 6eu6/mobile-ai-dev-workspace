@@ -421,27 +421,31 @@ ${value.content}
       return;
     }
 
-    // First create all folders
-    Object.entries(validSnapshot.files).forEach(async ([key, value]) => {
-      if (key.startsWith(container.workdir)) {
-        key = key.replace(container.workdir, '');
-      }
-
-      if (value?.type === 'folder') {
-        await container.fs.mkdir(key, { recursive: true });
-      }
-    });
-
-    // Then write all files
-    Object.entries(validSnapshot.files).forEach(async ([key, value]) => {
-      if (value?.type === 'file') {
+    // First create all folders (await all to complete before writing files)
+    await Promise.all(
+      Object.entries(validSnapshot.files).map(async ([key, value]) => {
         if (key.startsWith(container.workdir)) {
           key = key.replace(container.workdir, '');
         }
 
-        await container.fs.writeFile(key, value.content, { encoding: value.isBinary ? undefined : 'utf8' });
-      }
-    });
+        if (value?.type === 'folder') {
+          await container.fs.mkdir(key, { recursive: true });
+        }
+      }),
+    );
+
+    // Then write all files (await all so the workspace is complete before proceeding)
+    await Promise.all(
+      Object.entries(validSnapshot.files).map(async ([key, value]) => {
+        if (value?.type === 'file') {
+          if (key.startsWith(container.workdir)) {
+            key = key.replace(container.workdir, '');
+          }
+
+          await container.fs.writeFile(key, value.content, { encoding: value.isBinary ? undefined : 'utf8' });
+        }
+      }),
+    );
   }, []);
 
   return {

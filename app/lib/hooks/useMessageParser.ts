@@ -78,3 +78,13 @@ export function useMessageParser() {
 
   return { parsedMessages, parseMessages };
 }
+
+/**
+ * Force-finalize any open actions/artifacts in the parser.
+ * Must be called when streaming ends (onFinish / onError) so that
+ * partially-streamed files are actually written to the workbench.
+ */
+export function finalizeMessageParser() {
+  logger.info('Finalizing open parser actions');
+  messageParser.finalize();
+}
