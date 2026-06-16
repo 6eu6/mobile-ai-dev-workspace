@@ -90,7 +90,7 @@ export async function streamText(props: {
       currentModel = model;
       currentProvider = provider;
       newMessage.content = sanitizeText(content);
-    } else if (message.role == 'assistant') {
+    } else if (message.role === 'assistant') {
       newMessage.content = sanitizeText(message.content);
     }
 
@@ -125,13 +125,6 @@ export async function streamText(props: {
     modelDetails = modelsList.find((m) => m.name === currentModel);
 
     if (!modelDetails) {
-      // Check if it's a Google provider and the model name looks like it might be incorrect
-      if (provider.name === 'Google' && currentModel.includes('2.5')) {
-        throw new Error(
-          `Model "${currentModel}" not found. Gemini 2.5 Pro doesn't exist. Available Gemini models include: gemini-1.5-pro, gemini-2.0-flash, gemini-1.5-flash. Please select a valid model.`,
-        );
-      }
-
       // Fallback to first model with warning
       logger.warn(
         `MODEL [${currentModel}] not found in provider [${provider.name}]. Falling back to first model. ${modelsList[0].name}`,
@@ -216,7 +209,7 @@ export async function streamText(props: {
     ---
     `;
   } else {
-    console.log('No locked files found from any source for prompt.');
+    logger.debug('No locked files in prompt.');
   }
 
   logger.info(`Sending llm call to ${provider.name} with model ${modelDetails.name}`);

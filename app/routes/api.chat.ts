@@ -40,14 +40,6 @@ function parseCookies(cookieHeader: string): Record<string, string> {
 }
 
 async function chatAction({ context, request }: ActionFunctionArgs) {
-  const streamRecovery = new StreamRecoveryManager({
-    timeout: 45000,
-    maxRetries: 2,
-    onTimeout: () => {
-      logger.warn('Stream timeout - attempting recovery');
-    },
-  });
-
   const { messages, files, promptId, contextOptimization, supabase, chatMode, designScheme, maxLLMSteps } =
     await request.json<{
       messages: Messages;
@@ -68,10 +60,20 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
     }>();
 
   const cookieHeader = request.headers.get('Cookie');
-  const apiKeys = JSON.parse(parseCookies(cookieHeader || '').apiKeys || '{}');
-  const providerSettings: Record<string, IProviderSetting> = JSON.parse(
-    parseCookies(cookieHeader || '').providers || '{}',
-  );
+  let apiKeys: Record<string, string> = {};
+  let providerSettings: Record<string, IProviderSetting> = {};
+
+  try {
+    apiKeys = JSON.parse(parseCookies(cookieHeader || '').apiKeys || '{}');
+  } catch {
+    logger.warn('Malformed apiKeys cookie — treating as empty');
+  }
+
+  try {
+    providerSettings = JSON.parse(parseCookies(cookieHeader || '').providers || '{}');
+  } catch {
+    logger.warn('Malformed providers cookie — treating as empty');
+  }
 
   const stream = new SwitchableStream();
 
@@ -92,6 +94,28 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
 
     const dataStream = createDataStream({
       async execute(dataStream) {
+        /*
+         * Stream recovery: if no data arrives for 45 s the AI service is
+         * likely unresponsive.  We cannot re-create the stream mid-flight, but
+         * we CAN notify the client so it can show a clear error instead of
+         * hanging forever.
+         */
+        const streamRecovery = new StreamRecoveryManager({
+          timeout: 45000,
+          maxRetries: 1,
+          onTimeout: () => {
+            logger.warn('Stream timeout — no data received for 45 s, notifying client');
+            dataStream.writeData({
+              type: 'progress',
+              label: 'response',
+              status: 'error',
+              order: progressCounter++,
+              message: 'The AI service timed out. Please try again or select a different model.',
+            } satisfies ProgressAnnotation);
+            streamRecovery.stop();
+          },
+        });
+
         streamRecovery.startMonitoring();
 
         const filePaths = getFilePaths(files || {});
@@ -116,7 +140,7 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
           } satisfies ProgressAnnotation);
 
           // Create a summary of the chat
-          console.log(`Messages count: ${processedMessages.length}`);
+          logger.debug(`Messages count: ${processedMessages.length}`);
 
           summary = await createSummary({
             messages: [...processedMessages],
@@ -159,7 +183,7 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
           } satisfies ProgressAnnotation);
 
           // Select context files
-          console.log(`Messages count: ${processedMessages.length}`);
+          logger.debug(`Messages count: ${processedMessages.length}`);
           filteredFiles = await selectContext({
             messages: [...processedMessages],
             env: context.cloudflare?.env,
@@ -257,7 +281,7 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
 
             logger.info(`Reached max token limit (${MAX_TOKENS}): Continuing message (${switchesLeft} switches left)`);
 
-            const lastUserMessage = processedMessages.filter((x) => x.role == 'user').slice(-1)[0];
+            const lastUserMessage = processedMessages.filter((x) => x.role === 'user').slice(-1)[0];
             const { model, provider } = extractPropertiesFromMessage(lastUserMessage);
             processedMessages.push({ id: generateId(), role: 'assistant', content });
             processedMessages.push({

@@ -49,23 +49,45 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ provider, apiKey, 
     // Save to parent state
     setApiKey(tempKey);
 
-    // Save to cookies
+    // Save to cookies — remove the key entry entirely when empty
+    // so root.tsx can re-sync from Supabase on the next page load.
     const currentKeys = getApiKeysFromCookies();
-    const newKeys = { ...currentKeys, [provider.name]: tempKey };
-    Cookies.set('apiKeys', JSON.stringify(newKeys));
 
-    /*
-     * If signed in, persist the key to the account (encrypted at rest) so it
-     * syncs across devices and isn't re-entered each visit.
-     */
-    if (authUserStore.get() && tempKey) {
-      fetch('/api/account/api-key', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey: tempKey, provider: provider.name }),
-      }).catch(() => {
-        // best-effort; local cookie still holds the key
-      });
+    if (tempKey) {
+      const newKeys = { ...currentKeys, [provider.name]: tempKey };
+      Cookies.set('apiKeys', JSON.stringify(newKeys));
+
+      /*
+       * If signed in, persist the key to the account (encrypted at rest) so it
+       * syncs across devices and isn't re-entered each visit.
+       */
+      if (authUserStore.get()) {
+        fetch('/api/account/api-key', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ apiKey: tempKey, provider: provider.name }),
+        }).catch(() => {
+          // best-effort; local cookie still holds the key
+        });
+      }
+    } else {
+      // Remove this provider's entry from the cookie instead of storing ""
+      const { [provider.name]: _, ...remaining } = currentKeys;
+
+      if (Object.keys(remaining).length > 0) {
+        Cookies.set('apiKeys', JSON.stringify(remaining));
+      } else {
+        Cookies.remove('apiKeys');
+      }
+
+      // Also remove from server-side storage
+      if (authUserStore.get()) {
+        fetch('/api/account/api-key', {
+          method: 'DELETE',
+        }).catch(() => {
+          // best-effort
+        });
+      }
     }
 
     setIsEditing(false);

@@ -77,12 +77,29 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
 
       /*
        * If the user has a stored API key and the browser doesn't already have
-       * one, hydrate the `apiKeys` cookie from the account (decrypted) so they
-       * don't re-enter it. Only fills when missing — never overwrites local edits.
+       * a valid (non-empty) one, hydrate the `apiKeys` cookie from the account
+       * (decrypted) so they don't re-enter it.
+       *
+       * We check for at least one non-empty key value — a cookie like
+       * `{"OpenRouter":""}` should NOT block the Supabase sync.
        */
-      const hasApiKeyCookie = request.headers.get('Cookie')?.includes('apiKeys=');
+      const hasValidApiKeyCookie = (() => {
+        const cookieStr = request.headers.get('Cookie') || '';
+        const match = cookieStr.match(/(?:^|;\s*)apiKeys=([^;]*)/);
 
-      if (!hasApiKeyCookie && result.supabase && env.API_KEY_ENCRYPTION_KEY) {
+        if (!match) {
+          return false;
+        }
+
+        try {
+          const parsed: Record<string, string> = JSON.parse(decodeURIComponent(match[1]));
+          return Object.values(parsed).some((v) => typeof v === 'string' && v.length > 0);
+        } catch {
+          return false;
+        }
+      })();
+
+      if (!hasValidApiKeyCookie && result.supabase && env.API_KEY_ENCRYPTION_KEY) {
         const { data } = await result.supabase
           .from('user_api_keys')
           .select('provider, encrypted_key')
