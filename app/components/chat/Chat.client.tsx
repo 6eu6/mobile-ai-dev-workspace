@@ -258,6 +258,9 @@ export const ChatImpl = memo(
     /*
      * D) Generation status: Track streaming state and update generation step.
      * When streaming starts, show 'waiting-for-model'. When files appear, show 'creating-files'.
+     * Keep updating lastActivityTime while files are still being created so the
+     * "stuck" detection (30 s inactivity) doesn't fire prematurely during slow
+     * model output.
      */
     useEffect(() => {
       if (isLoading || fakeLoading) {
@@ -269,7 +272,7 @@ export const ChatImpl = memo(
 
         const fileCount = Object.keys(files).length;
 
-        if (fileCount > 0 && currentStep === 'waiting-for-model') {
+        if (fileCount > 0 && (currentStep === 'waiting-for-model' || currentStep === 'creating-files')) {
           setGenerationStep('creating-files');
         }
       }
