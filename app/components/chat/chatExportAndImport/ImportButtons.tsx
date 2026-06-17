@@ -66,7 +66,7 @@ export function ImportButtons(importChat: ((description: string, messages: Messa
         className={classNames(
           'gap-2',
           'bg-[rgba(139,92,246,0.06)] border border-[rgba(139,92,246,0.12)]',
-          'text-purple-200/80 hover:text-purple-100',
+          'text-teal-200/80 hover:text-teal-100',
           'hover:bg-[rgba(139,92,246,0.12)] hover:border-[rgba(139,92,246,0.2)]',
           'h-9 px-3 py-1.5 sm:h-10 sm:px-4 sm:py-2 sm:min-w-[120px] justify-center',
           'transition-all duration-200 ease-out',
@@ -84,7 +84,7 @@ export function ImportButtons(importChat: ((description: string, messages: Messa
         className={classNames(
           'gap-2',
           'bg-[rgba(139,92,246,0.06)] border border-[rgba(139,92,246,0.12)]',
-          'text-purple-200/80 hover:text-purple-100',
+          'text-teal-200/80 hover:text-teal-100',
           'hover:bg-[rgba(139,92,246,0.12)] hover:border-[rgba(139,92,246,0.2)]',
           'h-9 px-3 py-1.5 sm:h-10 sm:px-4 sm:py-2 sm:min-w-[120px] justify-center',
           'transition-all duration-200 ease-out',

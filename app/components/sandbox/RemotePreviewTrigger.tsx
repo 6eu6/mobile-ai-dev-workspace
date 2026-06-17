@@ -256,7 +256,7 @@ export const RemotePreviewTrigger = memo(() => {
             width: `${progress}%`,
             background: gen.isStuck
               ? 'var(--palmkit-mobile-warning)'
-              : 'linear-gradient(90deg, var(--palmkit-mobile-accent) 0%, #c084fc 100%)',
+              : 'linear-gradient(90deg, var(--palmkit-mobile-accent) 0%, #5eead4 100%)',
             transition: 'width 1s linear',
           }}
         />

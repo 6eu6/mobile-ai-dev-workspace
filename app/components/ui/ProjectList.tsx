@@ -113,8 +113,8 @@ export function ProjectList({ open, onClose }: ProjectListProps) {
     switch (status) {
       case 'generating':
         return (
-          <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300">
-            <span className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse" />
+          <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300">
+            <span className="w-1.5 h-1.5 rounded-full bg-teal-500 animate-pulse" />
             Generating
           </span>
         );
@@ -184,7 +184,7 @@ export function ProjectList({ open, onClose }: ProjectListProps) {
         <div className="px-5 py-3 border-b border-gray-100 dark:border-gray-800/50">
           <button
             onClick={handleNewProject}
-            className="w-full flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 dark:bg-purple-500 dark:hover:bg-purple-600 text-white rounded-lg px-4 py-2.5 transition-colors font-medium text-sm"
+            className="w-full flex items-center justify-center gap-2 bg-teal-600 hover:bg-teal-700 dark:bg-teal-500 dark:hover:bg-teal-600 text-white rounded-lg px-4 py-2.5 transition-colors font-medium text-sm"
           >
             <div className="i-ph:plus-circle text-base" />
             New Project

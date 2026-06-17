@@ -8,7 +8,7 @@ export const defaultDesignScheme: DesignScheme = {
   palette: {
     primary: '#9E7FFF',
     secondary: '#38bdf8',
-    accent: '#f472b6',
+    accent: '#4cd4b0',
     background: '#171717',
     surface: '#262626',
     text: '#FFFFFF',

@@ -25,13 +25,13 @@ export function ExamplePrompts(sendMessage?: { (event: React.UIEvent, messageInp
               'flex items-center gap-1.5',
               'border rounded-lg px-2.5 py-1.5',
               'bg-[rgba(139,92,246,0.06)] border-[rgba(139,92,246,0.12)]',
-              'text-[11px] font-medium text-purple-200/80',
-              'hover:bg-[rgba(139,92,246,0.12)] hover:border-[rgba(139,92,246,0.2)] hover:text-purple-100',
+              'text-[11px] font-medium text-teal-200/80',
+              'hover:bg-[rgba(139,92,246,0.12)] hover:border-[rgba(139,92,246,0.2)] hover:text-teal-100',
               'active:scale-[0.97]',
               'transition-all duration-200',
             )}
           >
-            <span className={`${examplePrompt.icon} text-purple-400/50 text-xs`} />
+            <span className={`${examplePrompt.icon} text-teal-400/50 text-xs`} />
             {examplePrompt.text}
           </button>
         ))}
@@ -48,7 +48,7 @@ export function ExamplePrompts(sendMessage?: { (event: React.UIEvent, messageInp
               'group relative overflow-hidden',
               'border rounded-full',
               'bg-[rgba(139,92,246,0.04)] border-[rgba(139,92,246,0.1)]',
-              'text-purple-200/70 hover:text-purple-100',
+              'text-teal-200/70 hover:text-teal-100',
               'px-3.5 py-1.5 text-xs font-medium',
               'transition-all duration-200 ease-out',
               'hover:bg-[rgba(139,92,246,0.1)] hover:border-[rgba(139,92,246,0.2)]',
@@ -61,7 +61,7 @@ export function ExamplePrompts(sendMessage?: { (event: React.UIEvent, messageInp
           >
             <span className="flex items-center gap-1.5">
               <span
-                className={`${examplePrompt.icon} text-purple-400/50 text-sm opacity-70 group-hover:opacity-100 transition-opacity`}
+                className={`${examplePrompt.icon} text-teal-400/50 text-sm opacity-70 group-hover:opacity-100 transition-opacity`}
               />
               {examplePrompt.text}
             </span>

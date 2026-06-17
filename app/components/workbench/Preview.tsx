@@ -1022,7 +1022,7 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
                 style={{ animation: 'fade-in-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards' }}
               >
                 <div className="w-16 h-16 rounded-2xl flex items-center justify-center bg-[rgba(139,92,246,0.06)] border border-[rgba(139,92,246,0.12)]">
-                  <div className="i-ph:browser text-2xl text-purple-400/50" />
+                  <div className="i-ph:browser text-2xl text-teal-400/50" />
                 </div>
                 <div>
                   <h3 className="text-sm font-semibold text-palmkit-elements-textPrimary mb-1.5">No preview available</h3>
@@ -1036,7 +1036,7 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
                     onClick={() => workbenchStore.currentView.set('code')}
                     className={classNames(
                       'flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium',
-                      'bg-[rgba(139,92,246,0.08)] text-purple-300 border border-[rgba(139,92,246,0.15)]',
+                      'bg-[rgba(139,92,246,0.08)] text-teal-300 border border-[rgba(139,92,246,0.15)]',
                       'hover:bg-[rgba(139,92,246,0.14)] hover:border-[rgba(139,92,246,0.25)]',
                       'active:scale-[0.97] transition-all duration-200',
                     )}
