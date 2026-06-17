@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import { ClientOnly } from 'remix-utils/client-only';
 import { ensureSignedIn } from '~/lib/stores/auth';
 import { classNames } from '~/utils/classNames';
@@ -66,7 +66,181 @@ interface ChatBoxProps {
   setSelectedElement?: ((element: ElementInfo | null) => void) | undefined;
 }
 
+/* ---------- Mistral-style "+" bottom sheet ---------- */
+function PlusBottomSheet({
+  open,
+  onClose,
+  onFileUpload,
+  onWebSearch,
+  onEnhance,
+  enhancingPrompt,
+  inputLength,
+  isStreaming,
+  chatStarted,
+  chatMode,
+  setChatMode,
+  designScheme,
+  setDesignScheme,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onFileUpload: () => void;
+  onWebSearch: () => void;
+  onEnhance: () => void;
+  enhancingPrompt?: boolean;
+  inputLength: number;
+  isStreaming: boolean;
+  chatStarted: boolean;
+  chatMode?: 'discuss' | 'build';
+  setChatMode?: (mode: 'discuss' | 'build') => void;
+  designScheme?: DesignScheme;
+  setDesignScheme?: (scheme: DesignScheme) => void;
+}) {
+  if (!open) return null;
+
+  const handleAction = (action: () => void) => {
+    action();
+    onClose();
+  };
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm"
+        onClick={onClose}
+        style={{ animation: 'fade-in 0.15s ease-out' }}
+      />
+      {/* Sheet */}
+      <div
+        className={classNames(
+          'fixed bottom-0 left-0 right-0 z-[101]',
+          'bg-palmkit-elements-bg-depth-1 dark:bg-[#141414]',
+          'border-t border-palmkit-elements-borderColor',
+          'rounded-t-2xl',
+          'shadow-[0_-4px_30px_rgba(0,0,0,0.15)]',
+          'max-h-[70vh] overflow-y-auto',
+        )}
+        style={{ animation: 'slide-up 0.25s cubic-bezier(0.16, 1, 0.3, 1)' }}
+      >
+        {/* Handle */}
+        <div className="flex justify-center pt-3 pb-1">
+          <div className="w-10 h-1 rounded-full bg-palmkit-elements-borderColor" />
+        </div>
+
+        {/* Action grid */}
+        <div className="grid grid-cols-4 gap-1 px-4 pb-6 pt-2">
+          <SheetAction
+            icon="i-ph:paperclip"
+            label="Upload"
+            onClick={() => handleAction(onFileUpload)}
+          />
+          <SheetAction
+            icon="i-ph:globe"
+            label="Web Search"
+            onClick={() => handleAction(onWebSearch)}
+            disabled={isStreaming}
+          />
+          <SheetAction
+            icon="i-palmkit:stars"
+            label="Enhance"
+            onClick={() => handleAction(onEnhance)}
+            disabled={inputLength === 0 || enhancingPrompt}
+            loading={enhancingPrompt}
+          />
+          <SheetAction
+            icon="i-ph:microphone"
+            label="Voice"
+            onClick={onClose} /* voice is handled by the main bar */
+          />
+          {chatStarted && (
+            <SheetAction
+              icon={chatMode === 'discuss' ? 'i-ph:hammer' : 'i-ph:chats'}
+              label={chatMode === 'discuss' ? 'Build' : 'Discuss'}
+              onClick={() => {
+                setChatMode?.(chatMode === 'discuss' ? 'build' : 'discuss');
+                onClose();
+              }}
+              active={chatMode === 'build'}
+            />
+          )}
+          <SheetAction
+            icon="i-ph:paint-brush"
+            label="Design"
+            onClick={onClose} /* design dialog opens separately */
+          >
+            <ColorSchemeDialog designScheme={designScheme} setDesignScheme={setDesignScheme} />
+          </SheetAction>
+          <SheetAction
+            icon="i-palmkit:mcp"
+            label="MCP"
+            onClick={onClose} /* MCP dialog opens separately */
+          >
+            <McpTools />
+          </SheetAction>
+          <SheetAction
+            icon="i-ph:database"
+            label="Supabase"
+            onClick={onClose} /* Supabase dialog opens separately */
+          >
+            <SupabaseConnection />
+          </SheetAction>
+        </div>
+      </div>
+    </>
+  );
+}
+
+/* Single action tile inside the sheet */
+function SheetAction({
+  icon,
+  label,
+  onClick,
+  disabled,
+  active,
+  loading,
+  children,
+}: {
+  icon: string;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  active?: boolean;
+  loading?: boolean;
+  children?: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={classNames(
+        'flex flex-col items-center justify-center gap-1.5 py-3 rounded-xl transition-all duration-150',
+        'active:scale-95',
+        active
+          ? 'bg-palmkit-elements-item-backgroundActive text-palmkit-elements-textPrimary'
+          : 'text-palmkit-elements-textTertiary hover:bg-palmkit-elements-item-backgroundActive hover:text-palmkit-elements-textPrimary',
+        disabled && 'opacity-40 cursor-not-allowed',
+      )}
+    >
+      {loading ? (
+        <div className="i-svg-spinners:90-ring-with-bg text-palmkit-elements-loader-progress text-[20px] animate-spin" />
+      ) : (
+        <div className={`${icon} text-[20px]`} />
+      )}
+      <span className="text-[11px] font-medium">{label}</span>
+      {/* Invisible trigger for dialogs that need to render inside */}
+      {children && <div className="absolute opacity-0 pointer-events-none">{children}</div>}
+    </button>
+  );
+}
+
+/* ---------- Main ChatBox ---------- */
 export const ChatBox: React.FC<ChatBoxProps> = (props) => {
+  const [isPlusOpen, setIsPlusOpen] = useState(false);
+
+  const openPlusSheet = useCallback(() => setIsPlusOpen(true), []);
+  const closePlusSheet = useCallback(() => setIsPlusOpen(false), []);
+
   return (
     <div
       className={classNames(
@@ -80,34 +254,6 @@ export const ChatBox: React.FC<ChatBoxProps> = (props) => {
         'focus-within:border-palmkit-elements-borderColorActive',
       )}
     >
-      {/* Animated border effect - subtle monochrome shimmer */}
-      <svg className={classNames(styles.PromptEffectContainer)}>
-        <defs>
-          <linearGradient
-            id="line-gradient"
-            x1="20%"
-            y1="0%"
-            x2="-14%"
-            y2="10%"
-            gradientUnits="userSpaceOnUse"
-            gradientTransform="rotate(-45)"
-          >
-            <stop offset="0%" stopColor="var(--palmkit-gradient-start)" stopOpacity="0%"></stop>
-            <stop offset="40%" stopColor="var(--palmkit-gradient-mid)" stopOpacity="40%"></stop>
-            <stop offset="50%" stopColor="var(--palmkit-gradient-end)" stopOpacity="40%"></stop>
-            <stop offset="100%" stopColor="var(--palmkit-gradient-start)" stopOpacity="0%"></stop>
-          </linearGradient>
-          <linearGradient id="shine-gradient">
-            <stop offset="0%" stopColor="white" stopOpacity="0%"></stop>
-            <stop offset="40%" stopColor="#ffffff" stopOpacity="60%"></stop>
-            <stop offset="50%" stopColor="#ffffff" stopOpacity="60%"></stop>
-            <stop offset="100%" stopColor="white" stopOpacity="0%"></stop>
-          </linearGradient>
-        </defs>
-        <rect className={classNames(styles.PromptEffectLine)} pathLength="100" strokeLinecap="round"></rect>
-        <rect className={classNames(styles.PromptShine)} x="48" y="24" width="70" height="1"></rect>
-      </svg>
-
       {/* Model settings - collapsible section */}
       <div>
         <ClientOnly>
@@ -178,214 +324,186 @@ export const ChatBox: React.FC<ChatBoxProps> = (props) => {
         </div>
       )}
 
-      {/* Main input area — Mistral-inspired clean design */}
-      <div className="relative">
-        <textarea
-          ref={props.textareaRef}
+      {/* Main input row — Mistral-style: [+] [textarea] [mic] [send] */}
+      <div className="flex items-end gap-0 px-2 pt-2">
+        {/* "+" button — opens bottom sheet with all tools */}
+        <button
+          type="button"
+          onClick={openPlusSheet}
           className={classNames(
-            'w-full pl-4 pr-12 pt-3.5 pb-1 outline-none resize-none',
-            'text-palmkit-elements-textPrimary placeholder-palmkit-elements-textTertiary',
-            'bg-transparent text-sm leading-relaxed',
+            'shrink-0 mb-2 w-8 h-8 rounded-full flex items-center justify-center',
+            'text-palmkit-elements-textTertiary hover:text-palmkit-elements-textPrimary',
+            'hover:bg-palmkit-elements-item-backgroundActive',
             'transition-colors duration-150',
           )}
-          onMouseDown={(e) => {
-            if (!ensureSignedIn()) {
+          title="More tools"
+        >
+          <div className="i-ph:plus text-[18px]" />
+        </button>
+
+        {/* Textarea */}
+        <div className="relative flex-1 min-w-0">
+          <textarea
+            ref={props.textareaRef}
+            className={classNames(
+              'w-full pl-2 pr-10 py-2.5 outline-none resize-none',
+              'text-palmkit-elements-textPrimary placeholder-palmkit-elements-textTertiary',
+              'bg-transparent text-sm sm:text-[16px] leading-relaxed',
+              'transition-colors duration-150',
+            )}
+            onMouseDown={(e) => {
+              if (!ensureSignedIn()) {
+                e.preventDefault();
+                e.currentTarget.blur();
+              }
+            }}
+            onFocus={(e) => {
+              if (!ensureSignedIn()) {
+                e.currentTarget.blur();
+              }
+            }}
+            onDragEnter={(e) => { e.preventDefault(); }}
+            onDragOver={(e) => { e.preventDefault(); }}
+            onDragLeave={(e) => { e.preventDefault(); }}
+            onDrop={(e) => {
               e.preventDefault();
-              e.currentTarget.blur();
-            }
-          }}
-          onFocus={(e) => {
-            if (!ensureSignedIn()) {
-              e.currentTarget.blur();
-            }
-          }}
-          onDragEnter={(e) => {
-            e.preventDefault();
-          }}
-          onDragOver={(e) => {
-            e.preventDefault();
-          }}
-          onDragLeave={(e) => {
-            e.preventDefault();
-          }}
-          onDrop={(e) => {
-            e.preventDefault();
-
-            const files = Array.from(e.dataTransfer.files);
-            files.forEach((file) => {
-              if (file.type.startsWith('image/')) {
-                const reader = new FileReader();
-
-                reader.onload = (e) => {
-                  const base64Image = e.target?.result as string;
-                  props.setUploadedFiles?.([...props.uploadedFiles, file]);
-                  props.setImageDataList?.([...props.imageDataList, base64Image]);
-                };
-                reader.readAsDataURL(file);
+              const files = Array.from(e.dataTransfer.files);
+              files.forEach((file) => {
+                if (file.type.startsWith('image/')) {
+                  const reader = new FileReader();
+                  reader.onload = (ev) => {
+                    const base64Image = ev.target?.result as string;
+                    props.setUploadedFiles?.([...props.uploadedFiles, file]);
+                    props.setImageDataList?.([...props.imageDataList, base64Image]);
+                  };
+                  reader.readAsDataURL(file);
+                }
+              });
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                if (event.shiftKey) return;
+                event.preventDefault();
+                if (props.isStreaming) { props.handleStop?.(); return; }
+                if (event.nativeEvent.isComposing) return;
+                props.handleSendMessage?.(event);
               }
-            });
-          }}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              if (event.shiftKey) {
-                return;
-              }
+            }}
+            value={props.input}
+            onChange={(event) => {
+              if (!ensureSignedIn()) return;
+              props.handleInputChange?.(event);
+            }}
+            onPaste={props.handlePaste}
+            style={{
+              minHeight: props.TEXTAREA_MIN_HEIGHT,
+              maxHeight: props.TEXTAREA_MAX_HEIGHT,
+            }}
+            placeholder={props.chatMode === 'build' ? 'What do you want to build?' : 'Ask anything...'}
+            translate="no"
+          />
 
-              event.preventDefault();
+          {/* Send / Stop — inside textarea */}
+          <ClientOnly>
+            {() => (
+              <SendButton
+                show={props.input.length > 0 || props.isStreaming || props.uploadedFiles.length > 0}
+                isStreaming={props.isStreaming}
+                disabled={!props.providerList || props.providerList.length === 0}
+                onClick={(event) => {
+                  if (props.isStreaming) { props.handleStop?.(); return; }
+                  if (props.input.length > 0 || props.uploadedFiles.length > 0) {
+                    props.handleSendMessage?.(event);
+                  }
+                }}
+              />
+            )}
+          </ClientOnly>
+        </div>
 
-              if (props.isStreaming) {
-                props.handleStop?.();
-                return;
-              }
-
-              if (event.nativeEvent.isComposing) {
-                return;
-              }
-
-              props.handleSendMessage?.(event);
-            }
-          }}
-          value={props.input}
-          onChange={(event) => {
-            if (!ensureSignedIn()) {
-              return;
-            }
-
-            props.handleInputChange?.(event);
-          }}
-          onPaste={props.handlePaste}
-          style={{
-            minHeight: props.TEXTAREA_MIN_HEIGHT,
-            maxHeight: props.TEXTAREA_MAX_HEIGHT,
-          }}
-          placeholder={props.chatMode === 'build' ? 'What do you want to build?' : 'Ask anything...'}
-          translate="no"
-        />
-
-        {/* Send / Stop button — positioned inside textarea */}
+        {/* Microphone */}
         <ClientOnly>
           {() => (
-            <SendButton
-              show={props.input.length > 0 || props.isStreaming || props.uploadedFiles.length > 0}
-              isStreaming={props.isStreaming}
-              disabled={!props.providerList || props.providerList.length === 0}
-              onClick={(event) => {
-                if (props.isStreaming) {
-                  props.handleStop?.();
-                  return;
-                }
-
-                if (props.input.length > 0 || props.uploadedFiles.length > 0) {
-                  props.handleSendMessage?.(event);
-                }
-              }}
+            <SpeechRecognitionButton
+              isListening={props.isListening}
+              onStart={props.startListening}
+              onStop={props.stopListening}
+              disabled={props.isStreaming}
             />
           )}
         </ClientOnly>
       </div>
 
-      {/* Action toolbar — Mistral-style bottom bar */}
-      <div className="flex items-center justify-between px-2 pb-2 pt-0">
-        {/* Left: attachment and tool actions */}
-        <div className="flex items-center gap-0.5">
-          <IconButton
-            title="Attach file"
-            className="!p-1.5 rounded-lg text-palmkit-elements-textTertiary hover:text-palmkit-elements-textPrimary hover:bg-palmkit-elements-item-backgroundActive transition-all duration-150"
-            onClick={() => props.handleFileUpload()}
-          >
-            <div className="i-ph:paperclip text-[18px]"></div>
-          </IconButton>
-
-          <WebSearch onSearchResult={(result) => props.onWebSearchResult?.(result)} disabled={props.isStreaming} />
-
-          <IconButton
-            title="Enhance prompt"
-            disabled={props.input.length === 0 || props.enhancingPrompt}
-            className={classNames(
-              '!p-1.5 rounded-lg transition-all duration-150',
-              props.enhancingPrompt
-                ? 'text-palmkit-elements-textTertiary'
-                : 'text-palmkit-elements-textTertiary hover:text-palmkit-elements-textPrimary hover:bg-palmkit-elements-item-backgroundActive',
-            )}
-            onClick={() => {
-              props.enhancePrompt?.();
-              toast.success('Prompt enhanced!');
-            }}
-          >
-            {props.enhancingPrompt ? (
-              <div className="i-svg-spinners:90-ring-with-bg text-palmkit-elements-loader-progress text-[18px] animate-spin"></div>
-            ) : (
-              <div className="i-palmkit:stars text-[18px]"></div>
-            )}
-          </IconButton>
-
-          <SpeechRecognitionButton
-            isListening={props.isListening}
-            onStart={props.startListening}
-            onStop={props.stopListening}
-            disabled={props.isStreaming}
-          />
-
-          {/* Mode toggle */}
-          {props.chatStarted && (
-            <IconButton
-              title={props.chatMode === 'discuss' ? 'Switch to Build mode' : 'Switch to Discuss mode'}
-              className={classNames(
-                '!p-1.5 rounded-lg transition-all duration-150',
-                props.chatMode === 'discuss'
-                  ? '!text-palmkit-elements-textPrimary !bg-palmkit-elements-item-backgroundActive'
-                  : 'text-palmkit-elements-textTertiary hover:text-palmkit-elements-textPrimary hover:bg-palmkit-elements-item-backgroundActive',
-              )}
-              onClick={() => {
-                props.setChatMode?.(props.chatMode === 'discuss' ? 'build' : 'discuss');
-              }}
-            >
-              <div className={`i-ph:chats text-[18px]`} />
-            </IconButton>
-          )}
-
-          <div className="flex items-center gap-0.5">
-            <ColorSchemeDialog designScheme={props.designScheme} setDesignScheme={props.setDesignScheme} />
-            <McpTools />
-          </div>
-        </div>
-
-        {/* Right: model indicator + supabase */}
-        <div className="flex items-center gap-0.5">
-          <SupabaseConnection />
+      {/* Compact bottom bar — model name only */}
+      <div className="flex items-center justify-between px-2 pb-1.5 pt-0">
+        <div className="flex items-center gap-1 min-w-0">
           <IconButton
             title="Model Settings"
             className={classNames(
-              '!p-1.5 rounded-lg transition-all duration-150 flex items-center gap-1',
-              props.isModelSettingsCollapsed
-                ? 'text-palmkit-elements-textTertiary hover:text-palmkit-elements-textPrimary hover:bg-palmkit-elements-item-backgroundActive'
-                : 'text-palmkit-elements-textPrimary bg-palmkit-elements-item-backgroundActive',
+              '!p-1 rounded-md transition-all duration-150 flex items-center gap-1',
+              'text-palmkit-elements-textTertiary hover:text-palmkit-elements-textPrimary',
             )}
             onClick={() => props.setIsModelSettingsCollapsed(!props.isModelSettingsCollapsed)}
             disabled={!props.providerList || props.providerList.length === 0}
           >
-            <div className={`i-ph:caret-${props.isModelSettingsCollapsed ? 'right' : 'down'} text-[14px]`} />
-            {props.isModelSettingsCollapsed ? (
-              <span className="text-[11px] font-medium max-w-[60px] sm:max-w-[80px] truncate text-palmkit-elements-textTertiary">
-                {props.model}
-              </span>
-            ) : (
-              <span />
-            )}
+            <div className={`i-ph:caret-${props.isModelSettingsCollapsed ? 'right' : 'down'} text-[12px]`} />
+            <span className="text-[11px] font-medium max-w-[120px] truncate text-palmkit-elements-textTertiary">
+              {props.model}
+            </span>
           </IconButton>
         </div>
+        {props.chatStarted && (
+          <button
+            className={classNames(
+              'text-[11px] font-medium px-2 py-0.5 rounded-md transition-all duration-150',
+              props.chatMode === 'build'
+                ? 'bg-palmkit-elements-item-backgroundActive text-palmkit-elements-textPrimary'
+                : 'text-palmkit-elements-textTertiary hover:text-palmkit-elements-textPrimary',
+            )}
+            onClick={() => props.setChatMode?.(props.chatMode === 'discuss' ? 'build' : 'discuss')}
+          >
+            {props.chatMode === 'discuss' ? 'Discuss' : 'Build'}
+          </button>
+        )}
       </div>
 
       {/* Mobile keyboard hint */}
       {props.input.length > 1 && (
-        <div className="flex sm:hidden items-center justify-end px-3 pb-2">
+        <div className="flex sm:hidden items-center justify-end px-3 pb-1.5">
           <div className="text-[10px] text-palmkit-elements-textTertiary">
             <kbd className="px-1 py-0.5 rounded bg-palmkit-elements-bg-depth-2 text-[10px]">Enter</kbd> send{' '}
             <kbd className="px-1 py-0.5 rounded bg-palmkit-elements-bg-depth-2 text-[10px]">Shift+Enter</kbd> new line
           </div>
         </div>
       )}
+
       <ExpoQrModal open={props.qrModalOpen} onClose={() => props.setQrModalOpen(false)} />
+
+      {/* Plus bottom sheet */}
+      <ClientOnly>
+        {() => (
+          <PlusBottomSheet
+            open={isPlusOpen}
+            onClose={closePlusSheet}
+            onFileUpload={props.handleFileUpload}
+            onWebSearch={() => {
+              /* WebSearch needs special handling - it opens its own inline UI */
+            }}
+            onEnhance={() => {
+              props.enhancePrompt?.();
+              toast.success('Prompt enhanced!');
+            }}
+            enhancingPrompt={props.enhancingPrompt}
+            inputLength={props.input.length}
+            isStreaming={props.isStreaming}
+            chatStarted={props.chatStarted}
+            chatMode={props.chatMode}
+            setChatMode={props.setChatMode}
+            designScheme={props.designScheme}
+            setDesignScheme={props.setDesignScheme}
+          />
+        )}
+      </ClientOnly>
     </div>
   );
 };

@@ -87,9 +87,16 @@
     padding-bottom: 8px;
   }
 
-  /* Prevent iOS zoom on textarea focus */
-  textarea {
-    font-size: 16px;
+  /* Prevent iOS zoom on ALL input focus — 16px minimum */
+  textarea,
+  input[type='text'],
+  input[type='url'],
+  input[type='search'],
+  input[type='email'],
+  input[type='number'],
+  input[type='tel'],
+  select {
+    font-size: 16px !important;
   }
 
   /* Model selector dropdown: limit height */
@@ -278,10 +285,35 @@
     padding-bottom: 0;
   }
 
-  /* Action buttons in input area: touch-friendly */
+  /* Chat box: prevent overflow, compact layout */
+  .z-prompt > div {
+    max-width: 100%;
+    overflow: hidden;
+  }
+
+  /* Action buttons: touch-friendly but compact */
   .z-prompt button {
-    min-width: 36px;
-    min-height: 36px;
+    min-width: 32px;
+    min-height: 32px;
+    flex-shrink: 0;
+  }
+
+  /* Plus bottom sheet — mobile full width */
+  .z-prompt [style*='fixed bottom-0'] {
+    left: 0;
+    right: 0;
+    max-width: 100vw;
+  }
+
+  /* Bottom sheet action grid: 4 cols on small screens */
+  .z-prompt .grid-cols-4 {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px;
+  }
+
+  /* Bottom sheet action buttons: compact on mobile */
+  .z-prompt .grid-cols-4 button {
+    padding: 10px 4px;
   }
 
   /* ============================================
