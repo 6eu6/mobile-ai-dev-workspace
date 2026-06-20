@@ -381,7 +381,7 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                     opacity: 0,
                   }}
                 >
-                  Describe it. Palmkit generates, previews, and exports — right from your phone.
+                  Describe it — Palmkit <RotatingWord /> it for you, right from your phone.
                 </p>
               </div>
             )}
@@ -538,6 +538,35 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
     );
   },
 );
+
+/**
+ * Cycles through a set of verbs in the welcome subtitle to convey that Palmkit
+ * can do many things (build / design / ship …). Pure CSS-free, dependency-free.
+ * SSR renders the first word; rotation begins after hydration.
+ */
+const ROTATING_VERBS = ['builds', 'designs', 'previews', 'ships', 'debugs', 'creates'];
+
+function RotatingWord() {
+  const [index, setIndex] = useState(0);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setIndex((i) => (i + 1) % ROTATING_VERBS.length);
+    }, 2200);
+
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <span
+      key={index}
+      className="font-semibold text-palmkit-elements-textPrimary"
+      style={{ animation: 'fade-in 0.4s ease-out' }}
+    >
+      {ROTATING_VERBS[index]}
+    </span>
+  );
+}
 
 function ScrollToBottom() {
   const { isAtBottom, scrollToBottom } = useStickToBottomContext();
