@@ -35,6 +35,7 @@ import type { ElementInfo } from '~/components/workbench/Inspector';
 import LlmErrorAlert from './LLMApiAlert';
 import { MobileShell } from '~/components/mobile/MobileShell';
 import { AuthModal } from '~/components/auth/AuthModal';
+import { authUserStore } from '~/lib/stores/auth';
 
 const TEXTAREA_MIN_HEIGHT = 96;
 
@@ -148,6 +149,7 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
     const [isModelLoading, setIsModelLoading] = useState<string | undefined>('all');
     const [progressAnnotations, setProgressAnnotations] = useState<ProgressAnnotation[]>([]);
     const expoUrl = useStore(expoUrlAtom);
+    const authUser = useStore(authUserStore);
     const [qrModalOpen, setQrModalOpen] = useState(false);
 
     useEffect(() => {
@@ -355,30 +357,20 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                     animation: 'fade-in-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards',
                   }}
                 >
-                  <h1 className="text-xl sm:text-4xl lg:text-6xl font-bold mb-3 sm:mb-3 lg:mb-4 tracking-tight">
-                    <span
-                      style={{
-                        background:
-                          'linear-gradient(135deg, var(--palmkit-gradient-start), var(--palmkit-gradient-mid), var(--palmkit-gradient-end))',
-                        backgroundSize: '200% 200%',
-                        WebkitBackgroundClip: 'text',
-                        WebkitTextFillColor: 'transparent',
-                        backgroundClip: 'text',
-                        animation: 'gradient-shift 6s ease infinite',
-                      }}
-                    >
-                      Build from your pocket
-                    </span>
+                  <h1 className="text-2xl sm:text-4xl lg:text-5xl font-semibold mb-2 sm:mb-3 tracking-tight text-palmkit-elements-textPrimary">
+                    Hi {authUser?.name?.split(' ')[0] || 'there'},
                   </h1>
                 </div>
                 <p
-                  className="text-[13px] sm:text-base lg:text-lg mb-6 sm:mb-8 text-palmkit-elements-textSecondary max-w-md mx-auto leading-relaxed"
+                  className="text-lg sm:text-2xl lg:text-3xl font-semibold mb-6 sm:mb-8 max-w-xl mx-auto leading-snug"
                   style={{
                     animation: 'fade-in-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.2s forwards',
                     opacity: 0,
                   }}
                 >
-                  Describe it — Palmkit <RotatingWord /> it for you, right from your phone.
+                  <span className="text-palmkit-elements-textSecondary">what are we </span>
+                  <RotatingWord />
+                  <span className="text-palmkit-elements-textSecondary"> today?</span>
                 </p>
               </div>
             )}
@@ -541,7 +533,7 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
  * can do many things (build / design / ship …). Pure CSS-free, dependency-free.
  * SSR renders the first word; rotation begins after hydration.
  */
-const ROTATING_VERBS = ['builds', 'designs', 'previews', 'ships', 'debugs', 'creates'];
+const ROTATING_VERBS = ['building', 'designing', 'shipping', 'debugging', 'creating', 'prototyping'];
 
 function RotatingWord() {
   const [index, setIndex] = useState(0);
@@ -557,8 +549,15 @@ function RotatingWord() {
   return (
     <span
       key={index}
-      className="font-semibold text-palmkit-elements-textPrimary"
-      style={{ animation: 'fade-in 0.4s ease-out' }}
+      style={{
+        background:
+          'linear-gradient(135deg, var(--palmkit-gradient-start), var(--palmkit-gradient-mid), var(--palmkit-gradient-end))',
+        backgroundSize: '200% 200%',
+        WebkitBackgroundClip: 'text',
+        WebkitTextFillColor: 'transparent',
+        backgroundClip: 'text',
+        animation: 'gradient-shift 6s ease infinite, fade-in 0.4s ease-out',
+      }}
     >
       {ROTATING_VERBS[index]}
     </span>
