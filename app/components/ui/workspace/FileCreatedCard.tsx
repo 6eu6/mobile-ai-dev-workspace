@@ -168,7 +168,9 @@ export const FileCreatedCard = memo(
             <div className={classNames(statusConfig.icon, 'text-xs shrink-0', statusConfig.colorClass)} />
           </div>
           {path && (
-            <div className="text-[10px] text-[var(--palmkit-mobile-text-tertiary)] font-mono truncate mt-0.5">{path}</div>
+            <div className="text-[10px] text-[var(--palmkit-mobile-text-tertiary)] font-mono truncate mt-0.5">
+              {path}
+            </div>
           )}
         </div>
 

@@ -114,7 +114,8 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
               label: 'response',
               status: 'error',
               order: progressCounter++,
-              message: 'The AI service timed out after 2 minutes. The model may be processing a complex request. Try again or select a faster model.',
+              message:
+                'The AI service timed out after 2 minutes. The model may be processing a complex request. Try again or select a faster model.',
             } satisfies ProgressAnnotation);
             streamRecovery?.stop();
           },
@@ -176,7 +177,9 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
               chatId: processedMessages.slice(-1)?.[0]?.id,
             } as ContextAnnotation);
           } catch (summaryError: any) {
-            logger.warn(`Context optimization: createSummary failed (${summaryError.message}) — continuing without summary`);
+            logger.warn(
+              `Context optimization: createSummary failed (${summaryError.message}) — continuing without summary`,
+            );
             dataStream.writeData({
               type: 'progress',
               label: 'summary',
@@ -241,7 +244,9 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
               message: 'Code Files Selected',
             } satisfies ProgressAnnotation);
           } catch (contextError: any) {
-            logger.warn(`Context optimization: selectContext failed (${contextError.message}) — continuing without context files`);
+            logger.warn(
+              `Context optimization: selectContext failed (${contextError.message}) — continuing without context files`,
+            );
             filteredFiles = undefined;
             dataStream.writeData({
               type: 'progress',
@@ -284,7 +289,7 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
           message: 'Generating Response',
         } satisfies ProgressAnnotation);
 
-        let currentMessages = [...processedMessages];
+        const currentMessages = [...processedMessages];
         let continueSegmentCount = 0;
 
         /*
@@ -342,6 +347,7 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
             ]);
           } catch (resultError: any) {
             logger.error(`Stream result error in segment ${continueSegmentCount + 1}: ${resultError.message}`);
+
             try {
               dataStream.writeData({
                 type: 'progress',
@@ -403,7 +409,9 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
           }
 
           const switchesLeft = MAX_RESPONSE_SEGMENTS - continueSegmentCount;
-          logger.info(`Reached token limit, auto-continuing segment ${continueSegmentCount}/${MAX_RESPONSE_SEGMENTS} (${switchesLeft} remaining)`);
+          logger.info(
+            `Reached token limit, auto-continuing segment ${continueSegmentCount}/${MAX_RESPONSE_SEGMENTS} (${switchesLeft} remaining)`,
+          );
 
           const lastUserMessage = processedMessages.filter((x) => x.role === 'user').slice(-1)[0];
           const { model, provider } = extractPropertiesFromMessage(lastUserMessage);
@@ -505,8 +513,10 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
       },
     });
   } catch (error: any) {
-    /* streamRecovery is only assigned inside execute(); if we're here,
-       execute never ran or threw before the assignment, so it's null. */
+    /*
+     * streamRecovery is only assigned inside execute(); if we're here,
+     * execute never ran or threw before the assignment, so it's null.
+     */
     logger.error(error);
 
     const errorResponse = {

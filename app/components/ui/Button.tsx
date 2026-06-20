@@ -7,7 +7,8 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: 'bg-palmkit-elements-background text-palmkit-elements-textPrimary hover:bg-palmkit-elements-background-depth-2',
+        default:
+          'bg-palmkit-elements-background text-palmkit-elements-textPrimary hover:bg-palmkit-elements-background-depth-2',
         destructive: 'bg-red-500 text-white hover:bg-red-600',
         outline:
           'border border-palmkit-elements-borderColor bg-transparent hover:bg-palmkit-elements-background-depth-2 hover:text-palmkit-elements-textPrimary text-palmkit-elements-textPrimary dark:border-palmkit-elements-borderColorActive',

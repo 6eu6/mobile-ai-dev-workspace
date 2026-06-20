@@ -22,8 +22,8 @@ export default function Privacy() {
             create your account.
           </li>
           <li>
-            <strong className="text-palmkit-elements-textPrimary">API keys:</strong> the model provider key you enter. It
-            is stored on your device, and — if you use an account — encrypted at rest so you don’t re-enter it each
+            <strong className="text-palmkit-elements-textPrimary">API keys:</strong> the model provider key you enter.
+            It is stored on your device, and — if you use an account — encrypted at rest so you don’t re-enter it each
             time. It is used only to make requests to your chosen provider on your behalf.
           </li>
           <li>
@@ -38,8 +38,8 @@ export default function Privacy() {
         <p>When you use Palmkit, data flows to the services that make it work:</p>
         <ul className="list-disc pl-5 flex flex-col gap-1.5">
           <li>
-            <strong className="text-palmkit-elements-textPrimary">Model providers (e.g. OpenRouter):</strong> your prompts
-            and project context are sent to the AI model you select, using your API key, to generate responses.
+            <strong className="text-palmkit-elements-textPrimary">Model providers (e.g. OpenRouter):</strong> your
+            prompts and project context are sent to the AI model you select, using your API key, to generate responses.
           </li>
           <li>
             <strong className="text-palmkit-elements-textPrimary">Cloud sandbox (e.g. E2B):</strong> generated project
@@ -89,8 +89,7 @@ export default function Privacy() {
 
       <LegalSection heading="7. Contact">
         <p>
-          Questions about privacy? Contact us at{' '}
-          <span style={{ color: '#f5f5f5' }}>support@palmkit.app</span>.
+          Questions about privacy? Contact us at <span style={{ color: '#f5f5f5' }}>support@palmkit.app</span>.
         </p>
       </LegalSection>
     </LegalLayout>

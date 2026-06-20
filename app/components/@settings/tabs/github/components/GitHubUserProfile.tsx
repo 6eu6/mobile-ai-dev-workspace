@@ -20,7 +20,9 @@ export function GitHubUserProfile({ user, className = '' }: GitHubUserProfilePro
         <h4 className="text-sm font-medium text-palmkit-elements-textPrimary dark:text-palmkit-elements-textPrimary">
           {user.name || user.login}
         </h4>
-        <p className="text-sm text-palmkit-elements-textSecondary dark:text-palmkit-elements-textSecondary">@{user.login}</p>
+        <p className="text-sm text-palmkit-elements-textSecondary dark:text-palmkit-elements-textSecondary">
+          @{user.login}
+        </p>
         {user.bio && (
           <p className="text-xs text-palmkit-elements-textTertiary dark:text-palmkit-elements-textTertiary mt-1">
             {user.bio}

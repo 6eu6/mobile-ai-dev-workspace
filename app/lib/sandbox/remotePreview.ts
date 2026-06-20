@@ -119,10 +119,13 @@ export async function ensureRemotePreview(): Promise<void> {
      * the dev server would never start.
      */
     console.info(`[RemotePreview] waiting for files to stabilize (currently ${fileCount} files)`);
+
     const files = await waitForFilesStable();
     const sig = signature(files);
 
-    console.info(`[RemotePreview] files stabilized: ${Object.keys(files).length} files, ${Object.values(files).reduce((s, c) => s + c.length, 0)} total bytes`);
+    console.info(
+      `[RemotePreview] files stabilized: ${Object.keys(files).length} files, ${Object.values(files).reduce((s, c) => s + c.length, 0)} total bytes`,
+    );
 
     if (started && sig === lastSignature) {
       return; // nothing changed
@@ -147,7 +150,9 @@ export async function ensureRemotePreview(): Promise<void> {
         }
 
         const errMsg = createError instanceof Error ? createError.message : String(createError);
-        console.error(`[RemotePreview] sandbox create failed (attempt ${createRetryCount}/${MAX_CREATE_RETRIES}): ${errMsg}`);
+        console.error(
+          `[RemotePreview] sandbox create failed (attempt ${createRetryCount}/${MAX_CREATE_RETRIES}): ${errMsg}`,
+        );
 
         if (createRetryCount <= MAX_CREATE_RETRIES) {
           // Don't set error state — let the next trigger retry
@@ -159,6 +164,7 @@ export async function ensureRemotePreview(): Promise<void> {
         const retryable = !errMsg.includes('not configured') && !errMsg.includes('501');
         remotePreviewStatus.set({ state: 'error', error: errMsg, retryable });
         resetAvailabilityCache();
+
         return;
       }
     }
@@ -208,8 +214,10 @@ export async function ensureRemotePreview(): Promise<void> {
           return;
         }
 
-        // Otherwise it's likely still booting — inject optimistically so a
-        // manual refresh picks it up once the dev server finishes.
+        /*
+         * Otherwise it's likely still booting — inject optimistically so a
+         * manual refresh picks it up once the dev server finishes.
+         */
         console.warn('[RemotePreview] server not confirmed ready yet — injecting optimistically');
       }
 

@@ -130,7 +130,9 @@ export const GenerationStepTimeline = memo(
                   <div
                     className={classNames(
                       'min-h-[16px] flex-1 w-px transition-colors duration-300',
-                      isCompleted ? 'bg-[var(--palmkit-mobile-success)]/40' : 'bg-[var(--palmkit-mobile-surface-border)]',
+                      isCompleted
+                        ? 'bg-[var(--palmkit-mobile-success)]/40'
+                        : 'bg-[var(--palmkit-mobile-surface-border)]',
                     )}
                   />
                 )}
@@ -159,7 +161,9 @@ export const GenerationStepTimeline = memo(
 
                 {/* Error message */}
                 {isFailed && errorMessage && (
-                  <div className="mt-0.5 truncate text-[10px] text-[var(--palmkit-mobile-error)]/80">{errorMessage}</div>
+                  <div className="mt-0.5 truncate text-[10px] text-[var(--palmkit-mobile-error)]/80">
+                    {errorMessage}
+                  </div>
                 )}
 
                 {/* Stuck indicator */}

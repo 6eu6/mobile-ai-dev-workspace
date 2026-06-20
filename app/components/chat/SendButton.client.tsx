@@ -17,9 +17,7 @@ export const SendButton = ({ show, isStreaming, disabled, onClick }: SendButtonP
         <motion.button
           className="absolute flex justify-center items-center top-3 right-3 p-1.5 rounded-xl w-[32px] h-[32px] transition-all duration-150 disabled:opacity-30 disabled:cursor-not-allowed"
           style={{
-            background: isStreaming
-              ? 'rgba(239, 68, 68, 0.9)'
-              : 'var(--palmkit-elements-textPrimary)',
+            background: isStreaming ? 'rgba(239, 68, 68, 0.9)' : 'var(--palmkit-elements-textPrimary)',
           }}
           transition={{ ease: customEasingFn, duration: 0.15 }}
           initial={{ opacity: 0, scale: 0.8 }}

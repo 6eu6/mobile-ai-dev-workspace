@@ -51,11 +51,15 @@ export const chatMetadata = atom<IChatMetadata | undefined>(undefined);
  */
 function generateSmartTitle(content: string): string {
   // Strip model/provider tags like [Model: xxx] [Provider: xxx]
-  let cleaned = content.replace(/\[Model:.*?\]/g, '').replace(/\[Provider:.*?\]/g, '').trim();
+  let cleaned = content
+    .replace(/\[Model:.*?\]/g, '')
+    .replace(/\[Provider:.*?\]/g, '')
+    .trim();
 
   // Strip artifact XML tags that may be in the message
   cleaned = cleaned.replace(/<palmkitArtifact[\s\S]*?<\/palmkitArtifact>/g, '').trim();
   cleaned = cleaned.replace(/<palmkitAction[\s\S]*?<\/palmkitAction>/g, '').trim();
+
   // Also handle legacy bolt tags
   cleaned = cleaned.replace(/<boltArtifact[\s\S]*?<\/boltArtifact>/g, '').trim();
   cleaned = cleaned.replace(/<boltAction[\s\S]*?<\/boltAction>/g, '').trim();
@@ -71,10 +75,16 @@ function generateSmartTitle(content: string): string {
   cleaned = cleaned.replace(/https?:\/\/\S+/g, '').trim();
 
   // Strip common conversational prefixes in multiple languages
-  cleaned = cleaned.replace(/^(please\s+)?(can\s+you\s+|could\s+you\s+|i\s+want\s+|i\s+need\s+|i'd\s+like\s+|build\s+me\s+|create\s+me\s+|make\s+me\s+|help\s+me\s+|سوي\s+|ابنِ\s+|اعمل\s+|ساعدني\s+|اريد\s+|ابغى\s+|خليني\s+)/i, '');
+  cleaned = cleaned.replace(
+    /^(please\s+)?(can\s+you\s+|could\s+you\s+|i\s+want\s+|i\s+need\s+|i'd\s+like\s+|build\s+me\s+|create\s+me\s+|make\s+me\s+|help\s+me\s+|سوي\s+|ابنِ\s+|اعمل\s+|ساعدني\s+|اريد\s+|ابغى\s+|خليني\s+)/i,
+    '',
+  );
 
   // Take first meaningful line only
-  const lines = cleaned.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+  const lines = cleaned
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
   const firstLine = lines[0] || '';
 
   // Detect the type of request and generate appropriate title format
@@ -82,42 +92,50 @@ function generateSmartTitle(content: string): string {
     // Build/create patterns
     {
       pattern: /^(build|create|make|design|develop|write|generate|scaffold)\s+(?:a\s+|an\s+)?(.+)/i,
-      extract: (m) => `${capitalize(m[1])} ${m[2]}`
+      extract: (m) => `${capitalize(m[1])} ${m[2]}`,
     },
+
     // Fix/debug patterns
     {
       pattern: /^(fix|debug|repair|solve|troubleshoot|resolve)\s+(?:the\s+|a\s+)?(.+)/i,
-      extract: (m) => `Fix: ${m[2]}`
+      extract: (m) => `Fix: ${m[2]}`,
     },
+
     // Update/modify patterns
     {
       pattern: /^(update|modify|change|improve|refactor|enhance|upgrade|optimize)\s+(?:the\s+|a\s+)?(.+)/i,
-      extract: (m) => `Update: ${m[2]}`
+      extract: (m) => `Update: ${m[2]}`,
     },
+
     // Add patterns
     {
       pattern: /^(add|insert|implement|include|integrate)\s+(?:a\s+|an\s+|the\s+)?(.+)/i,
-      extract: (m) => `Add: ${m[2]}`
+      extract: (m) => `Add: ${m[2]}`,
     },
+
     // Setup/configure patterns
     {
       pattern: /^(set\s?up|setup|configure|install|initialize)\s+(?:a\s+|the\s+)?(.+)/i,
-      extract: (m) => `Setup: ${m[2]}`
+      extract: (m) => `Setup: ${m[2]}`,
     },
+
     // Arabic patterns
     {
       pattern: /^(ابن|سوي|اعمل|اصنع|صمم|برمج|طور)\s+(.*)/i,
-      extract: (m) => m[2]
+      extract: (m) => m[2],
     },
   ];
 
   for (const { pattern, extract } of actionPatterns) {
     const match = firstLine.match(pattern);
+
     if (match) {
       let title = extract(match).trim();
+
       if (title.length > 50) {
         title = title.slice(0, 47) + '...';
       }
+
       return title || 'New Chat';
     }
   }
@@ -222,12 +240,15 @@ export function useChatHistory() {
       seedChatFromAccount(db, mixedId)
         .catch(() => false)
         .then(async () => {
-          // getMessages resolves by both internal ID and urlId;
-          // use the resolved internal ID for snapshot lookup (snapshots are
-          // stored under the internal chat ID, not the urlId).
+          /*
+           * getMessages resolves by both internal ID and urlId;
+           * use the resolved internal ID for snapshot lookup (snapshots are
+           * stored under the internal chat ID, not the urlId).
+           */
           const storedMessages = await getMessages(db, mixedId);
           const snapshotId = storedMessages?.id ?? mixedId;
           const snapshot = await getSnapshot(db, snapshotId);
+
           return [storedMessages, snapshot] as const;
         })
         .then(async ([storedMessages, snapshot]) => {
@@ -634,10 +655,13 @@ ${value.content}
       } else {
         // Fix existing descriptions that contain model/provider tags (legacy cleanup)
         const currentDesc = description.get();
+
         if (currentDesc && (currentDesc.includes('[Model:') || currentDesc.includes('[Provider:'))) {
           const firstUserMsg = messages.find((m) => m.role === 'user');
+
           if (firstUserMsg && typeof firstUserMsg.content === 'string') {
             const cleanDesc = generateSmartTitle(firstUserMsg.content);
+
             if (cleanDesc && cleanDesc !== 'New Chat') {
               description.set(cleanDesc);
             }

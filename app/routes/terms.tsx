@@ -56,9 +56,9 @@ export default function Terms() {
 
       <LegalSection heading="6. Intellectual property">
         <p>
-          Palmkit is an independent project built on top of the MIT-licensed palmkit.app codebase; the original license and
-          attributions are preserved. The Palmkit name and branding belong to its maintainer. Your generated projects
-          remain yours.
+          Palmkit is an independent project built on top of the MIT-licensed palmkit.app codebase; the original license
+          and attributions are preserved. The Palmkit name and branding belong to its maintainer. Your generated
+          projects remain yours.
         </p>
       </LegalSection>
 
@@ -79,8 +79,7 @@ export default function Terms() {
 
       <LegalSection heading="9. Contact">
         <p>
-          Questions about these terms? Contact us at{' '}
-          <span style={{ color: '#f5f5f5' }}>support@palmkit.app</span>.
+          Questions about these terms? Contact us at <span style={{ color: '#f5f5f5' }}>support@palmkit.app</span>.
         </p>
       </LegalSection>
     </LegalLayout>

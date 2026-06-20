@@ -1,4 +1,10 @@
-import { type ActionFunctionArgs, type LoaderFunctionArgs, type MetaFunction, json, redirect } from '@remix-run/cloudflare';
+import {
+  type ActionFunctionArgs,
+  type LoaderFunctionArgs,
+  type MetaFunction,
+  json,
+  redirect,
+} from '@remix-run/cloudflare';
 import { Form, Link, useActionData, useNavigation, useSearchParams } from '@remix-run/react';
 import { AuthButton, AuthInput, AuthLayout } from '~/components/auth/AuthLayout';
 import { getAuthedUser, getSupabaseServerClient } from '~/lib/auth/supabase.server';
@@ -32,7 +38,10 @@ export async function action({ request, context }: ActionFunctionArgs) {
     });
 
     if (error || !data.url) {
-      return json({ error: error?.message ?? 'Could not start sign-in.' } satisfies LoginActionData, { status: 400, headers });
+      return json({ error: error?.message ?? 'Could not start sign-in.' } satisfies LoginActionData, {
+        status: 400,
+        headers,
+      });
     }
 
     return redirect(data.url, { headers });
@@ -124,7 +133,7 @@ export default function Login() {
           Forgot password?
         </Link>
 
-        {(actionData?.error || urlError) ? (
+        {actionData?.error || urlError ? (
           <div
             className="flex items-start gap-2 p-3 rounded-xl text-xs"
             style={{

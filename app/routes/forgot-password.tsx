@@ -1,11 +1,15 @@
-import { type ActionFunctionArgs, type LoaderFunctionArgs, type MetaFunction, json, redirect } from '@remix-run/cloudflare';
+import {
+  type ActionFunctionArgs,
+  type LoaderFunctionArgs,
+  type MetaFunction,
+  json,
+  redirect,
+} from '@remix-run/cloudflare';
 import { Form, Link, useActionData, useNavigation } from '@remix-run/react';
 import { AuthButton, AuthInput, AuthLayout } from '~/components/auth/AuthLayout';
 import { getAuthedUser, getSupabaseServerClient } from '~/lib/auth/supabase.server';
 
-type ForgotPasswordActionData =
-  | { error: string }
-  | { sent: true; email: string };
+type ForgotPasswordActionData = { error: string } | { sent: true; email: string };
 
 export const meta: MetaFunction = () => [{ title: 'Reset password — Palmkit' }];
 
@@ -51,8 +55,8 @@ export default function ForgotPassword() {
         <div className="flex flex-col items-center text-center gap-3 py-2">
           <span className="i-ph:envelope-simple-open text-3xl" style={{ color: '#f5f5f5' }} />
           <p className="text-sm text-palmkit-elements-textSecondary">
-            If an account exists for <span className="text-palmkit-elements-textPrimary">{actionData.email}</span>, a link
-            to reset your password is on its way.
+            If an account exists for <span className="text-palmkit-elements-textPrimary">{actionData.email}</span>, a
+            link to reset your password is on its way.
           </p>
           <Link to="/login" className="text-xs underline" style={{ color: '#f5f5f5' }}>
             Back to log in

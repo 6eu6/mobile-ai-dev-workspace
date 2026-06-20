@@ -42,6 +42,7 @@ function getApiKey(context: ActionFunctionArgs['context']): string | undefined {
 export async function loader({ context }: LoaderFunctionArgs) {
   const hasKey = Boolean(getApiKey(context));
   console.log(`[api/sandbox] health check: configured=${hasKey}`);
+
   return json({ ok: true, configured: hasKey });
 }
 
@@ -72,12 +73,15 @@ export async function action({ context, request }: ActionFunctionArgs) {
   try {
     switch (body.op) {
       case 'create': {
-        // Dynamic import — isolated to this code path so a failure here
-        // doesn't crash the GET loader.
-        const { Sandbox } = await import('e2b');
-        const sandbox = await Sandbox.create({ apiKey, timeoutMs: SANDBOX_TIMEOUT_MS });
+        /*
+         * Dynamic import — isolated to this code path so a failure here
+         * doesn't crash the GET loader.
+         */
+        const { Sandbox: sandboxClass } = await import('e2b');
+        const sandbox = await sandboxClass.create({ apiKey, timeoutMs: SANDBOX_TIMEOUT_MS });
 
         console.log(`[api/sandbox] created sandbox: ${sandbox.sandboxId}`);
+
         return json({ id: sandbox.sandboxId });
       }
 
@@ -86,8 +90,8 @@ export async function action({ context, request }: ActionFunctionArgs) {
           return json({ error: 'id and files are required' }, { status: 400 });
         }
 
-        const { Sandbox } = await import('e2b');
-        const sandbox = await Sandbox.connect(body.id, { apiKey });
+        const { Sandbox: sandboxClass } = await import('e2b');
+        const sandbox = await sandboxClass.connect(body.id, { apiKey });
 
         for (const [path, content] of Object.entries(body.files)) {
           const clean = path.replace(/^\/+/, '');
@@ -102,8 +106,8 @@ export async function action({ context, request }: ActionFunctionArgs) {
           return json({ error: 'id is required' }, { status: 400 });
         }
 
-        const { Sandbox } = await import('e2b');
-        const sandbox = await Sandbox.connect(body.id, { apiKey });
+        const { Sandbox: sandboxClass } = await import('e2b');
+        const sandbox = await sandboxClass.connect(body.id, { apiKey });
         const port = body.port ?? DEFAULT_PORT;
         const install = body.install ?? 'npm install';
         const dev = body.dev ?? `npm run dev -- --host 0.0.0.0 --port ${port} --base=/preview/`;
@@ -141,8 +145,8 @@ export async function action({ context, request }: ActionFunctionArgs) {
           return json({ error: 'id is required' }, { status: 400 });
         }
 
-        const { Sandbox } = await import('e2b');
-        const sandbox = await Sandbox.connect(body.id, { apiKey });
+        const { Sandbox: sandboxClass } = await import('e2b');
+        const sandbox = await sandboxClass.connect(body.id, { apiKey });
         const out = await sandbox.commands
           .run('tail -n 60 /tmp/dev.log 2>/dev/null || echo "(no logs yet)"', { timeoutMs: 8000 })
           .catch(() => ({ stdout: '(logs unavailable)' }) as { stdout: string });
@@ -185,11 +189,12 @@ export async function action({ context, request }: ActionFunctionArgs) {
           return json({ error: 'id is required' }, { status: 400 });
         }
 
-        const { Sandbox } = await import('e2b');
-        const sandbox = await Sandbox.connect(body.id, { apiKey });
+        const { Sandbox: sandboxClass } = await import('e2b');
+        const sandbox = await sandboxClass.connect(body.id, { apiKey });
         await sandbox.kill();
 
         console.log(`[api/sandbox] destroyed sandbox: ${body.id}`);
+
         return json({ ok: true });
       }
 
@@ -200,6 +205,7 @@ export async function action({ context, request }: ActionFunctionArgs) {
     const message = error instanceof Error ? error.message : String(error);
 
     console.error(`[api/sandbox] operation ${body.op} failed:`, message);
+
     return json({ error: message }, { status: 500 });
   }
 }

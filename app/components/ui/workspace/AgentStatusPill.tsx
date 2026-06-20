@@ -52,23 +52,27 @@ const STATUS_CONFIG: Record<AgentStatus, { icon: string; label: string; colorCla
   restored: {
     icon: 'i-ph:arrow-counter-clockwise',
     label: 'Restored',
-    colorClass: 'bg-[var(--palmkit-mobile-success-muted)] text-[var(--palmkit-mobile-success)] border-[rgba(74,222,128,0.2)]',
+    colorClass:
+      'bg-[var(--palmkit-mobile-success-muted)] text-[var(--palmkit-mobile-success)] border-[rgba(74,222,128,0.2)]',
   },
   stuck: {
     icon: 'i-ph:warning',
     label: 'Stuck',
-    colorClass: 'bg-[var(--palmkit-mobile-warning-muted)] text-[var(--palmkit-mobile-warning)] border-[rgba(251,191,36,0.2)]',
+    colorClass:
+      'bg-[var(--palmkit-mobile-warning-muted)] text-[var(--palmkit-mobile-warning)] border-[rgba(251,191,36,0.2)]',
     animate: true,
   },
   error: {
     icon: 'i-ph:x-circle',
     label: 'Error',
-    colorClass: 'bg-[var(--palmkit-mobile-error-muted)] text-[var(--palmkit-mobile-error)] border-[rgba(248,113,113,0.2)]',
+    colorClass:
+      'bg-[var(--palmkit-mobile-error-muted)] text-[var(--palmkit-mobile-error)] border-[rgba(248,113,113,0.2)]',
   },
   done: {
     icon: 'i-ph:check-circle',
     label: 'Done',
-    colorClass: 'bg-[var(--palmkit-mobile-success-muted)] text-[var(--palmkit-mobile-success)] border-[rgba(74,222,128,0.2)]',
+    colorClass:
+      'bg-[var(--palmkit-mobile-success-muted)] text-[var(--palmkit-mobile-success)] border-[rgba(74,222,128,0.2)]',
   },
 };
 

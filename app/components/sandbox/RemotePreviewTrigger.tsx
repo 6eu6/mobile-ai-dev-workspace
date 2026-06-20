@@ -95,7 +95,9 @@ export const RemotePreviewTrigger = memo(() => {
 
     void (async () => {
       const useRemote = await shouldUseRemotePreview();
-      console.info(`[RPT] trigger: justFinished=${justFinished}, sandboxState=${sandbox.state}, hasFiles=${hasFiles}, useRemote=${useRemote}`);
+      console.info(
+        `[RPT] trigger: justFinished=${justFinished}, sandboxState=${sandbox.state}, hasFiles=${hasFiles}, useRemote=${useRemote}`,
+      );
 
       if (useRemote) {
         await ensureRemotePreview();
@@ -150,11 +152,7 @@ export const RemotePreviewTrigger = memo(() => {
         }}
       >
         <span className="i-ph:warning-circle text-sm shrink-0" />
-        <span className="flex-1 truncate">
-          {isSandboxError
-            ? 'Cloud preview failed'
-            : 'Generation failed'}
-        </span>
+        <span className="flex-1 truncate">{isSandboxError ? 'Cloud preview failed' : 'Generation failed'}</span>
         {isSandboxError && sandbox.retryable && (
           <button
             onClick={() => {

@@ -31,15 +31,18 @@ export function LandingPromptBox() {
 
   const autosize = useCallback(() => {
     const el = textareaRef.current;
+
     if (!el) {
       return;
     }
+
     el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, []);
 
   const submit = useCallback(() => {
     const trimmed = value.trim();
+
     if (!trimmed) {
       return;
     }

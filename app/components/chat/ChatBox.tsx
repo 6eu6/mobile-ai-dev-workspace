@@ -14,13 +14,11 @@ import { toast } from 'react-toastify';
 import { SpeechRecognitionButton } from '~/components/chat/SpeechRecognition';
 import { SupabaseConnection } from './SupabaseConnection';
 import { ExpoQrModal } from '~/components/workbench/ExpoQrModal';
-import styles from './BaseChat.module.scss';
 import type { ProviderInfo } from '~/types/model';
 import { ColorSchemeDialog } from '~/components/ui/ColorSchemeDialog';
 import type { DesignScheme } from '~/types/design-scheme';
 import type { ElementInfo } from '~/components/workbench/Inspector';
 import { McpTools } from './MCPTools';
-import { WebSearch } from './WebSearch.client';
 
 interface ChatBoxProps {
   isModelSettingsCollapsed: boolean;
@@ -96,7 +94,9 @@ function PlusBottomSheet({
   designScheme?: DesignScheme;
   setDesignScheme?: (scheme: DesignScheme) => void;
 }) {
-  if (!open) return null;
+  if (!open) {
+    return null;
+  }
 
   const handleAction = (action: () => void) => {
     action();
@@ -130,11 +130,7 @@ function PlusBottomSheet({
 
         {/* Action grid */}
         <div className="grid grid-cols-4 gap-1 px-4 pb-6 pt-2">
-          <SheetAction
-            icon="i-ph:paperclip"
-            label="Upload"
-            onClick={() => handleAction(onFileUpload)}
-          />
+          <SheetAction icon="i-ph:paperclip" label="Upload" onClick={() => handleAction(onFileUpload)} />
           <SheetAction
             icon="i-ph:globe"
             label="Web Search"
@@ -148,11 +144,7 @@ function PlusBottomSheet({
             disabled={inputLength === 0 || enhancingPrompt}
             loading={enhancingPrompt}
           />
-          <SheetAction
-            icon="i-ph:microphone"
-            label="Voice"
-            onClick={onClose} /* voice is handled by the main bar */
-          />
+          <SheetAction icon="i-ph:microphone" label="Voice" onClick={onClose} /* voice is handled by the main bar */ />
           {chatStarted && (
             <SheetAction
               icon={chatMode === 'discuss' ? 'i-ph:hammer' : 'i-ph:chats'}
@@ -164,25 +156,13 @@ function PlusBottomSheet({
               active={chatMode === 'build'}
             />
           )}
-          <SheetAction
-            icon="i-ph:paint-brush"
-            label="Design"
-            onClick={onClose} /* design dialog opens separately */
-          >
+          <SheetAction icon="i-ph:paint-brush" label="Design" onClick={onClose} /* design dialog opens separately */>
             <ColorSchemeDialog designScheme={designScheme} setDesignScheme={setDesignScheme} />
           </SheetAction>
-          <SheetAction
-            icon="i-palmkit:mcp"
-            label="MCP"
-            onClick={onClose} /* MCP dialog opens separately */
-          >
+          <SheetAction icon="i-palmkit:mcp" label="MCP" onClick={onClose} /* MCP dialog opens separately */>
             <McpTools />
           </SheetAction>
-          <SheetAction
-            icon="i-ph:database"
-            label="Supabase"
-            onClick={onClose} /* Supabase dialog opens separately */
-          >
+          <SheetAction icon="i-ph:database" label="Supabase" onClick={onClose} /* Supabase dialog opens separately */>
             <SupabaseConnection />
           </SheetAction>
         </div>
@@ -362,15 +342,23 @@ export const ChatBox: React.FC<ChatBoxProps> = (props) => {
                 e.currentTarget.blur();
               }
             }}
-            onDragEnter={(e) => { e.preventDefault(); }}
-            onDragOver={(e) => { e.preventDefault(); }}
-            onDragLeave={(e) => { e.preventDefault(); }}
+            onDragEnter={(e) => {
+              e.preventDefault();
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+            }}
+            onDragLeave={(e) => {
+              e.preventDefault();
+            }}
             onDrop={(e) => {
               e.preventDefault();
+
               const files = Array.from(e.dataTransfer.files);
               files.forEach((file) => {
                 if (file.type.startsWith('image/')) {
                   const reader = new FileReader();
+
                   reader.onload = (ev) => {
                     const base64Image = ev.target?.result as string;
                     props.setUploadedFiles?.([...props.uploadedFiles, file]);
@@ -382,16 +370,30 @@ export const ChatBox: React.FC<ChatBoxProps> = (props) => {
             }}
             onKeyDown={(event) => {
               if (event.key === 'Enter') {
-                if (event.shiftKey) return;
+                if (event.shiftKey) {
+                  return;
+                }
+
                 event.preventDefault();
-                if (props.isStreaming) { props.handleStop?.(); return; }
-                if (event.nativeEvent.isComposing) return;
+
+                if (props.isStreaming) {
+                  props.handleStop?.();
+                  return;
+                }
+
+                if (event.nativeEvent.isComposing) {
+                  return;
+                }
+
                 props.handleSendMessage?.(event);
               }
             }}
             value={props.input}
             onChange={(event) => {
-              if (!ensureSignedIn()) return;
+              if (!ensureSignedIn()) {
+                return;
+              }
+
               props.handleInputChange?.(event);
             }}
             onPaste={props.handlePaste}
@@ -411,7 +413,11 @@ export const ChatBox: React.FC<ChatBoxProps> = (props) => {
                 isStreaming={props.isStreaming}
                 disabled={!props.providerList || props.providerList.length === 0}
                 onClick={(event) => {
-                  if (props.isStreaming) { props.handleStop?.(); return; }
+                  if (props.isStreaming) {
+                    props.handleStop?.();
+                    return;
+                  }
+
                   if (props.input.length > 0 || props.uploadedFiles.length > 0) {
                     props.handleSendMessage?.(event);
                   }

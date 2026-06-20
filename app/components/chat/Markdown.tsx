@@ -162,10 +162,13 @@ export const Markdown = memo(
                     console.log('Message appended:', message);
                   } else if (type === 'implement' && append && setChatMode) {
                     setChatMode('build');
-                    // Use setTimeout to ensure React has re-rendered with the new
-                    // chatMode='build' before append fires — otherwise the old
-                    // 'discuss' body is sent to the server and the AI gets the
-                    // wrong system prompt (no artifact support).
+
+                    /*
+                     * Use setTimeout to ensure React has re-rendered with the new
+                     * chatMode='build' before append fires — otherwise the old
+                     * 'discuss' body is sent to the server and the AI gets the
+                     * wrong system prompt (no artifact support).
+                     */
                     setTimeout(() => {
                       append({
                         id: `quick-action-implement-${Date.now()}`,

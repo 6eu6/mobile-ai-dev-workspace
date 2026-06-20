@@ -72,7 +72,9 @@ export function AuthModal() {
 
         <div className="flex flex-col items-center text-center mb-5">
           <img src="/palmkit-icon.jpg" alt="Palmkit" className="w-14 h-14 rounded-2xl mb-3 shadow-lg" />
-          <h2 className="text-xl font-bold tracking-tight text-palmkit-elements-textPrimary">Sign in to start building</h2>
+          <h2 className="text-xl font-bold tracking-tight text-palmkit-elements-textPrimary">
+            Sign in to start building
+          </h2>
           <p className="text-sm text-palmkit-elements-textSecondary mt-1">
             Create a free account to generate, preview, and keep your projects.
           </p>
@@ -80,19 +82,13 @@ export function AuthModal() {
 
         <div className="flex flex-col gap-2.5">
           {/* GitHub OAuth — plain <a> link to API route */}
-          <a
-            href={`/api/auth/github?redirectTo=${encodeURIComponent(redirectTo)}`}
-            className={oauthBtn}
-          >
+          <a href={`/api/auth/github?redirectTo=${encodeURIComponent(redirectTo)}`} className={oauthBtn}>
             <span className="i-ph:github-logo-fill text-lg" />
             Continue with GitHub
           </a>
 
           {/* Twitter/X OAuth — plain <a> link to API route */}
-          <a
-            href={`/api/auth/twitter?redirectTo=${encodeURIComponent(redirectTo)}`}
-            className={oauthBtn}
-          >
+          <a href={`/api/auth/twitter?redirectTo=${encodeURIComponent(redirectTo)}`} className={oauthBtn}>
             <span className="i-ph:x-logo-fill text-lg" />
             Continue with X
           </a>

@@ -1,7 +1,14 @@
 import type { WebContainer } from '@webcontainer/api';
 import { path as nodePath } from '~/utils/path';
 import { atom, map, type MapStore } from 'nanostores';
-import type { ActionAlert, PalmkitAction, DeployAlert, FileHistory, SupabaseAction, SupabaseAlert } from '~/types/actions';
+import type {
+  ActionAlert,
+  PalmkitAction,
+  DeployAlert,
+  FileHistory,
+  SupabaseAction,
+  SupabaseAlert,
+} from '~/types/actions';
 import { createScopedLogger } from '~/utils/logger';
 import { unreachable } from '~/utils/unreachable';
 import type { ActionCallbackData } from './message-parser';
@@ -31,8 +38,10 @@ async function shouldOffloadExecution(): Promise<boolean> {
   const available = await isRemoteSandboxAvailable();
   logger.info(`[offload] constrained=${constrained}, e2b=${available}`);
 
-  // If E2B is not available, we MUST run locally even on constrained devices.
-  // A working (possibly slow) preview is better than no preview at all.
+  /*
+   * If E2B is not available, we MUST run locally even on constrained devices.
+   * A working (possibly slow) preview is better than no preview at all.
+   */
   if (!available) {
     logger.warn(`[offload] E2B not available — forcing local execution on constrained device. Preview may be slow.`);
     return false;
@@ -379,7 +388,7 @@ export class ActionRunner {
     try {
       await webcontainer.fs.writeFile(relativePath, action.content);
       logger.debug(`File written ${relativePath}`);
-    } catch (error) {
+    } catch {
       /*
        * On memory-constrained devices the WebContainer often can't write files
        * (insufficient memory / boot failure).  We still need to register the

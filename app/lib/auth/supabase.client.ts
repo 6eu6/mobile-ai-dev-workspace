@@ -24,11 +24,27 @@ export function getSupabaseBrowserClient(url: string, anonKey: string): Supabase
       setAll(cookiesToSet) {
         cookiesToSet.forEach(({ name, value, options }) => {
           let cookie = `${name}=${value}`;
-          if (options.maxAge) cookie += `; Max-Age=${options.maxAge}`;
-          if (options.path) cookie += `; Path=${options.path}`;
-          if (options.domain) cookie += `; Domain=${options.domain}`;
-          if (options.sameSite) cookie += `; SameSite=${options.sameSite}`;
-          if (options.secure) cookie += '; Secure';
+
+          if (options.maxAge) {
+            cookie += `; Max-Age=${options.maxAge}`;
+          }
+
+          if (options.path) {
+            cookie += `; Path=${options.path}`;
+          }
+
+          if (options.domain) {
+            cookie += `; Domain=${options.domain}`;
+          }
+
+          if (options.sameSite) {
+            cookie += `; SameSite=${options.sameSite}`;
+          }
+
+          if (options.secure) {
+            cookie += '; Secure';
+          }
+
           document.cookie = cookie;
         });
       },

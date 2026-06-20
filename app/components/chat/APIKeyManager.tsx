@@ -49,8 +49,10 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ provider, apiKey, 
     // Save to parent state
     setApiKey(tempKey);
 
-    // Save to cookies — remove the key entry entirely when empty
-    // so root.tsx can re-sync from Supabase on the next page load.
+    /*
+     * Save to cookies — remove the key entry entirely when empty
+     * so root.tsx can re-sync from Supabase on the next page load.
+     */
     const currentKeys = getApiKeysFromCookies();
 
     if (tempKey) {

@@ -27,25 +27,32 @@ export function isMemoryConstrainedDevice(): boolean {
 
   const ua = navigator.userAgent;
 
-  // Detect phones only (not tablets, not desktop).
-  // iPad and iPadOS masquerade as macOS in newer Safari — detect via touch + screen.
+  /*
+   * Detect phones only (not tablets, not desktop).
+   * iPad and iPadOS masquerade as macOS in newer Safari — detect via touch + screen.
+   */
   const isIPhone = /iPhone/i.test(ua);
   const isAndroidPhone = /Android(?!.*Tablet|.*Mobile.*Tablet)/i.test(ua);
 
-  // iPad detection: iPadOS 13+ reports as Mac, so also check touch capability
-  // combined with screen size to distinguish from iPhone.
+  /*
+   * iPad detection: iPadOS 13+ reports as Mac, so also check touch capability
+   * combined with screen size to distinguish from iPhone.
+   */
   const isIPad =
-    (/iPad/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) &&
-    window.screen.width >= 768;
+    (/iPad/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) && window.screen.width >= 768;
 
-  // Small-screen Android tablets are rare but exist — treat tablets as non-constrained
-  // since they have enough RAM for WebContainer.
+  /*
+   * Small-screen Android tablets are rare but exist — treat tablets as non-constrained
+   * since they have enough RAM for WebContainer.
+   */
   const isAndroidTablet = /Android.*Tablet/i.test(ua) || (/Android/i.test(ua) && window.screen.width >= 768);
 
   const isPhone = isIPhone || (isAndroidPhone && !isAndroidTablet);
 
-  // Explicitly exclude desktop Safari — it has plenty of memory for WebContainer.
-  // Only phones are memory-constrained.
+  /*
+   * Explicitly exclude desktop Safari — it has plenty of memory for WebContainer.
+   * Only phones are memory-constrained.
+   */
   return isPhone && !isIPad && !isAndroidTablet;
 }
 
@@ -63,6 +70,7 @@ export async function isRemoteSandboxAvailable(): Promise<boolean> {
     if (!res.ok) {
       console.warn(`[E2B] GET ${BASE} returned ${res.status} — E2B disabled for this session`);
       availabilityCache = false;
+
       return false;
     }
 
@@ -105,11 +113,7 @@ if (typeof window !== 'undefined') {
  * E2B sandboxes can be flaky on first create (cold start) — retry transient
  * failures with exponential back-off.
  */
-async function callWithRetry<T>(
-  payload: Record<string, unknown>,
-  retries = 2,
-  baseDelayMs = 1500,
-): Promise<T> {
+async function callWithRetry<T>(payload: Record<string, unknown>, retries = 2, baseDelayMs = 1500): Promise<T> {
   let lastError: Error | undefined;
 
   for (let attempt = 0; attempt <= retries; attempt++) {
@@ -152,6 +156,7 @@ async function callWithRetry<T>(
       // Don't retry client-side aborts or timeouts on the last attempt
       if (err instanceof DOMException && err.name === 'TimeoutError' && attempt < retries) {
         lastError = err as Error;
+
         const delay = baseDelayMs * Math.pow(2, attempt);
         console.warn(`[E2B] ${payload.op} timed out, retry ${attempt + 1}/${retries} in ${delay}ms`);
         await new Promise((r) => setTimeout(r, delay));
@@ -163,6 +168,7 @@ async function callWithRetry<T>(
       }
 
       lastError = err instanceof Error ? err : new Error(String(err));
+
       const delay = baseDelayMs * Math.pow(2, attempt);
       console.warn(`[E2B] ${payload.op} error: ${lastError.message}, retry ${attempt + 1}/${retries} in ${delay}ms`);
       await new Promise((r) => setTimeout(r, delay));
@@ -202,7 +208,9 @@ export async function pushFiles(id: string, files: Record<string, string>): Prom
     const totalBatches = Math.ceil(entries.length / BATCH_SIZE);
     const batchFiles = Object.fromEntries(batch);
 
-    console.info(`[E2B] uploading batch ${batchNum}/${totalBatches} (${batch.length} files, ${Object.values(batchFiles).reduce((s, c) => s + c.length, 0)} bytes)`);
+    console.info(
+      `[E2B] uploading batch ${batchNum}/${totalBatches} (${batch.length} files, ${Object.values(batchFiles).reduce((s, c) => s + c.length, 0)} bytes)`,
+    );
 
     await callWithRetry({ op: 'files', id, files: batchFiles }, 2, 2000);
   }

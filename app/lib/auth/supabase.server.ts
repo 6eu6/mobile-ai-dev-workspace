@@ -18,13 +18,7 @@ export function getEnv(context: AppLoadContext): Record<string, string | undefin
 
   // Resolve each key with a cascade of fallbacks
   const resolve = (key: string, viteKey: string): string | undefined => {
-    return (
-      cloudflareEnv[key] ??
-      process.env[key] ??
-      cloudflareEnv[viteKey] ??
-      process.env[viteKey] ??
-      undefined
-    );
+    return cloudflareEnv[key] ?? process.env[key] ?? cloudflareEnv[viteKey] ?? process.env[viteKey] ?? undefined;
   };
 
   return {

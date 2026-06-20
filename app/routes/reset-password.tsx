@@ -1,4 +1,10 @@
-import { type ActionFunctionArgs, type LoaderFunctionArgs, type MetaFunction, json, redirect } from '@remix-run/cloudflare';
+import {
+  type ActionFunctionArgs,
+  type LoaderFunctionArgs,
+  type MetaFunction,
+  json,
+  redirect,
+} from '@remix-run/cloudflare';
 import { Form, Link, useActionData, useNavigation } from '@remix-run/react';
 import { AuthButton, AuthInput, AuthLayout } from '~/components/auth/AuthLayout';
 import { getAuthedUser, getSupabaseServerClient } from '~/lib/auth/supabase.server';
@@ -36,7 +42,10 @@ export async function action({ request, context }: ActionFunctionArgs) {
   }
 
   if (password.length < 8) {
-    return json({ error: 'Password must be at least 8 characters.' } satisfies ResetPasswordActionData, { status: 400, headers });
+    return json({ error: 'Password must be at least 8 characters.' } satisfies ResetPasswordActionData, {
+      status: 400,
+      headers,
+    });
   }
 
   if (password !== confirm) {
@@ -79,7 +88,9 @@ export default function ResetPassword() {
           placeholder="Re-enter password"
         />
 
-        {'error' in (actionData ?? {}) && actionData?.error ? <p className="text-xs text-red-400">{actionData.error}</p> : null}
+        {'error' in (actionData ?? {}) && actionData?.error ? (
+          <p className="text-xs text-red-400">{actionData.error}</p>
+        ) : null}
 
         <AuthButton disabled={busy}>{busy ? 'Saving…' : 'Update password'}</AuthButton>
       </Form>

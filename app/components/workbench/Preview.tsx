@@ -1025,7 +1025,9 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
                   <div className="i-ph:browser text-2xl text-palmkit-elements-textTertiary" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-semibold text-palmkit-elements-textPrimary mb-1.5">No preview available</h3>
+                  <h3 className="text-sm font-semibold text-palmkit-elements-textPrimary mb-1.5">
+                    No preview available
+                  </h3>
                   <p className="text-xs text-palmkit-elements-textTertiary leading-relaxed">
                     Start a conversation or wait for the runtime to initialize. Preview will appear here once the app is
                     running.

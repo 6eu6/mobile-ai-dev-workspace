@@ -252,9 +252,11 @@ export async function streamText(props: {
     `Options for "${modelDetails.name}": isReasoning=${isReasoning}, keys=[${Object.keys(filteredOptions).join(',')}]`,
   );
 
-  // Unified prompt: the same smart prompt handles both discussion and building.
-  // The AI intelligently decides when to discuss vs. when to produce artifacts
-  // based on the user's message — no mode switching needed.
+  /*
+   * Unified prompt: the same smart prompt handles both discussion and building.
+   * The AI intelligently decides when to discuss vs. when to produce artifacts
+   * based on the user's message — no mode switching needed.
+   */
   const streamParams = {
     model: provider.getModelInstance({
       model: modelDetails.name,
@@ -271,9 +273,7 @@ export async function streamText(props: {
     ...(isReasoning ? { temperature: 1 } : {}),
   };
 
-  logger.debug(
-    `Streaming "${modelDetails.name}": maxTokens=${safeMaxTokens}, isReasoning=${isReasoning}`,
-  );
+  logger.debug(`Streaming "${modelDetails.name}": maxTokens=${safeMaxTokens}, isReasoning=${isReasoning}`);
 
   return await _streamText(streamParams);
 }

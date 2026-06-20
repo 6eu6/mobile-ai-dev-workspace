@@ -97,7 +97,9 @@ export function RestoreOverlay() {
                       <div
                         className={classNames(
                           'h-0.5 w-6 transition-colors duration-300',
-                          isCompleted ? 'bg-[var(--palmkit-mobile-success)]/60' : 'bg-[var(--palmkit-mobile-surface-border)]',
+                          isCompleted
+                            ? 'bg-[var(--palmkit-mobile-success)]/60'
+                            : 'bg-[var(--palmkit-mobile-surface-border)]',
                         )}
                       />
                     )}

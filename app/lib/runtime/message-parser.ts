@@ -1,4 +1,11 @@
-import type { ActionType, PalmkitAction, PalmkitActionData, FileAction, ShellAction, SupabaseAction } from '~/types/actions';
+import type {
+  ActionType,
+  PalmkitAction,
+  PalmkitActionData,
+  FileAction,
+  ShellAction,
+  SupabaseAction,
+} from '~/types/actions';
 import type { PalmkitArtifactData } from '~/types/artifact';
 import { createScopedLogger } from '~/utils/logger';
 import { unreachable } from '~/utils/unreachable';
@@ -8,7 +15,11 @@ const ARTIFACT_TAG_CLOSE = '</palmkitArtifact>';
 const ARTIFACT_ACTION_TAG_OPEN = '<palmkitAction';
 const ARTIFACT_ACTION_TAG_CLOSE = '</palmkitAction>';
 
-// Backward compatibility: normalize old boltArtifact/boltAction tags to palmkitArtifact/palmkitAction
+/*
+ * Backward compatibility: normalize old boltArtifact/boltAction tags to palmkitArtifact/palmkitAction.
+ * NOTE: retained for re-wiring into the parse path (old saved projects still use bolt* tags).
+ */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function normalizeLegacyTags(input: string): string {
   return input
     .replace(/<boltArtifact/g, '<palmkitArtifact')

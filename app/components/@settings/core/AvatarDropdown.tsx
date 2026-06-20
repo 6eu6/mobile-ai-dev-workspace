@@ -122,9 +122,7 @@ export const AvatarDropdown = ({ onSelectTab }: AvatarDropdownProps) => {
               'outline-none',
               'group',
             )}
-            onClick={() =>
-              window.open('https://github.com/6eu6/Palmkit/issues/new?template=bug_report.yml', '_blank')
-            }
+            onClick={() => window.open('https://github.com/6eu6/Palmkit/issues/new?template=bug_report.yml', '_blank')}
           >
             <div className="i-ph:bug w-4 h-4 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-400 transition-colors" />
             Report Bug

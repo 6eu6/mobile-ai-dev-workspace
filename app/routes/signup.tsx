@@ -1,11 +1,15 @@
-import { type ActionFunctionArgs, type LoaderFunctionArgs, type MetaFunction, json, redirect } from '@remix-run/cloudflare';
+import {
+  type ActionFunctionArgs,
+  type LoaderFunctionArgs,
+  type MetaFunction,
+  json,
+  redirect,
+} from '@remix-run/cloudflare';
 import { Form, Link, useActionData, useNavigation } from '@remix-run/react';
 import { AuthButton, AuthInput, AuthLayout } from '~/components/auth/AuthLayout';
 import { getAuthedUser, getSupabaseServerClient } from '~/lib/auth/supabase.server';
 
-type SignupActionData =
-  | { error: string }
-  | { confirm: true; email: string };
+type SignupActionData = { error: string } | { confirm: true; email: string };
 
 export const meta: MetaFunction = () => [{ title: 'Sign up — Palmkit' }];
 
@@ -33,7 +37,10 @@ export async function action({ request, context }: ActionFunctionArgs) {
     });
 
     if (error || !data.url) {
-      return json({ error: error?.message ?? 'Could not start sign-in.' } satisfies SignupActionData, { status: 400, headers });
+      return json({ error: error?.message ?? 'Could not start sign-in.' } satisfies SignupActionData, {
+        status: 400,
+        headers,
+      });
     }
 
     return redirect(data.url, { headers });
@@ -44,10 +51,10 @@ export async function action({ request, context }: ActionFunctionArgs) {
   const password = String(formData.get('password') ?? '');
 
   if (!email || password.length < 8) {
-    return json(
-      { error: 'Enter an email and a password of at least 8 characters.' } satisfies SignupActionData,
-      { status: 400, headers },
-    );
+    return json({ error: 'Enter an email and a password of at least 8 characters.' } satisfies SignupActionData, {
+      status: 400,
+      headers,
+    });
   }
 
   const { data, error } = await supabase.auth.signUp({
@@ -79,8 +86,8 @@ export default function Signup() {
         <div className="flex flex-col items-center text-center gap-3 py-2">
           <span className="i-ph:envelope-simple-open text-3xl" style={{ color: '#f5f5f5' }} />
           <p className="text-sm text-palmkit-elements-textSecondary">
-            We sent a confirmation link to <span className="text-palmkit-elements-textPrimary">{actionData.email}</span>.
-            Click it to finish creating your account.
+            We sent a confirmation link to <span className="text-palmkit-elements-textPrimary">{actionData.email}</span>
+            . Click it to finish creating your account.
           </p>
           <Link to="/login" className="text-xs underline" style={{ color: '#f5f5f5' }}>
             Back to log in

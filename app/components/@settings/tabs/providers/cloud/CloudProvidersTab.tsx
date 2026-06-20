@@ -154,7 +154,9 @@ const CloudProvidersTab = () => {
             </div>
             <div>
               <h4 className="text-md font-medium text-palmkit-elements-textPrimary">Cloud Providers</h4>
-              <p className="text-sm text-palmkit-elements-textSecondary">Connect to cloud-based AI models and services</p>
+              <p className="text-sm text-palmkit-elements-textSecondary">
+                Connect to cloud-based AI models and services
+              </p>
             </div>
           </div>
 

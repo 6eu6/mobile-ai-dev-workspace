@@ -14,14 +14,17 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     const anonKey = env.SUPABASE_ANON_KEY;
 
     if (!url || !anonKey) {
-      return json({
-        error: 'Supabase not configured',
-        debug: {
-          hasUrl: Boolean(url),
-          hasAnonKey: Boolean(anonKey),
-          urlPrefix: url ? url.substring(0, 20) + '...' : null,
+      return json(
+        {
+          error: 'Supabase not configured',
+          debug: {
+            hasUrl: Boolean(url),
+            hasAnonKey: Boolean(anonKey),
+            urlPrefix: url ? url.substring(0, 20) + '...' : null,
+          },
         },
-      }, { status: 500 });
+        { status: 500 },
+      );
     }
 
     const { supabase, headers } = getSupabaseServerClient(request, context);
@@ -36,23 +39,29 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     });
 
     if (error || !data.url) {
-      return json({
-        error: error?.message ?? 'Could not start X sign-in.',
-        debug: {
-          hasData: Boolean(data),
-          hasUrl: Boolean(data?.url),
-          provider: 'twitter',
-          callbackUrl,
-          origin,
+      return json(
+        {
+          error: error?.message ?? 'Could not start X sign-in.',
+          debug: {
+            hasData: Boolean(data),
+            hasUrl: Boolean(data?.url),
+            provider: 'twitter',
+            callbackUrl,
+            origin,
+          },
         },
-      }, { status: 500, headers });
+        { status: 500, headers },
+      );
     }
 
     return redirect(data.url, { headers });
   } catch (err) {
-    return json({
-      error: err instanceof Error ? err.message : 'Unknown error',
-      stack: err instanceof Error ? err.stack?.split('\n').slice(0, 5) : undefined,
-    }, { status: 500 });
+    return json(
+      {
+        error: err instanceof Error ? err.message : 'Unknown error',
+        stack: err instanceof Error ? err.stack?.split('\n').slice(0, 5) : undefined,
+      },
+      { status: 500 },
+    );
   }
 }

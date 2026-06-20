@@ -5,7 +5,7 @@ import { type LoaderFunctionArgs, json } from '@remix-run/cloudflare';
  * This helps debug why OAuth buttons might not work.
  * Only shows whether variables are set (NOT their values — that would be a security risk).
  */
-export async function loader({ request, context }: LoaderFunctionArgs) {
+export async function loader({ request: _request, context }: LoaderFunctionArgs) {
   const cloudflareEnv =
     (context as unknown as { cloudflare?: { env?: Record<string, string | undefined> } }).cloudflare?.env ?? {};
 
@@ -37,10 +37,11 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
       VITE_SUPABASE_URL: hasProcessViteSupabaseUrl ? '✅ set' : '❌ missing',
       VITE_SUPABASE_ANON_KEY: hasProcessViteSupabaseAnonKey ? '✅ set' : '❌ missing',
     },
-    hint: !hasSupabaseUrl && !hasViteSupabaseUrl
-      ? 'No Supabase URL found anywhere! Set SUPABASE_URL in Cloudflare Pages dashboard > Settings > Environment variables.'
-      : hasViteSupabaseUrl && !hasSupabaseUrl
-        ? 'Only VITE_SUPABASE_URL is set. The code will use it as fallback, but for best results also set SUPABASE_URL (without VITE_ prefix).'
-        : 'Configuration looks good.',
+    hint:
+      !hasSupabaseUrl && !hasViteSupabaseUrl
+        ? 'No Supabase URL found anywhere! Set SUPABASE_URL in Cloudflare Pages dashboard > Settings > Environment variables.'
+        : hasViteSupabaseUrl && !hasSupabaseUrl
+          ? 'Only VITE_SUPABASE_URL is set. The code will use it as fallback, but for best results also set SUPABASE_URL (without VITE_ prefix).'
+          : 'Configuration looks good.',
   });
 }

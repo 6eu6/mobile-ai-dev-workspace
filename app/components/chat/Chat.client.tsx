@@ -227,10 +227,12 @@ export const ChatImpl = memo(
       initialInput: Cookies.get(PROMPT_COOKIE_KEY) || '',
     });
     useEffect(() => {
-      // Pick up a prompt stashed by the landing page (lovable-style flow) — a
-      // logged-out visitor types their idea into LandingPromptBox, we store it
-      // in sessionStorage, send them through login, and resume here. Falls back
-      // to a ?prompt= URL param for the no-sessionStorage case.
+      /*
+       * Pick up a prompt stashed by the landing page (lovable-style flow) — a
+       * logged-out visitor types their idea into LandingPromptBox, we store it
+       * in sessionStorage, send them through login, and resume here. Falls back
+       * to a ?prompt= URL param for the no-sessionStorage case.
+       */
       let prompt = '';
 
       try {

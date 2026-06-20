@@ -23,9 +23,7 @@ export function HeaderActionButtons({ chatStarted: _chatStarted }: HeaderActionB
       {shouldShowButtons && (
         <div className="flex border border-palmkit-elements-borderColor rounded-md overflow-hidden text-sm">
           <button
-            onClick={() =>
-              window.open('https://github.com/6eu6/Palmkit/issues/new?template=bug_report.yml', '_blank')
-            }
+            onClick={() => window.open('https://github.com/6eu6/Palmkit/issues/new?template=bug_report.yml', '_blank')}
             className="rounded-l-md items-center justify-center [&:is(:disabled,.disabled)]:cursor-not-allowed [&:is(:disabled,.disabled)]:opacity-60 px-3 py-1.5 text-xs bg-gray-800 dark:bg-gray-300 text-white hover:text-palmkit-elements-item-contentAccent [&:not(:disabled,.disabled)]:hover:bg-palmkit-elements-button-primary-backgroundHover outline-gray-800 dark:outline-gray-300 flex gap-1.5"
             title="Report Bug"
           >

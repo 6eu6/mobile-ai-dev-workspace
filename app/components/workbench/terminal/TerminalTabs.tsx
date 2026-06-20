@@ -162,7 +162,8 @@ export const TerminalTabs = memo(() => {
                         className={classNames(
                           'flex items-center text-sm cursor-pointer gap-1.5 px-3 py-2 h-full whitespace-nowrap rounded-full',
                           {
-                            'bg-palmkit-elements-terminals-buttonBackground text-palmkit-elements-textPrimary': isActive,
+                            'bg-palmkit-elements-terminals-buttonBackground text-palmkit-elements-textPrimary':
+                              isActive,
                             'bg-palmkit-elements-background-depth-2 text-palmkit-elements-textSecondary hover:bg-palmkit-elements-terminals-buttonBackground':
                               !isActive,
                           },

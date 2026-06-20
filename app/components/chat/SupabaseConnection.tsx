@@ -188,7 +188,9 @@ export function SupabaseConnection() {
 
                 <div className="flex items-center gap-4 p-3 bg-[#F8F8F8] dark:bg-[#1A1A1A] rounded-lg">
                   <div>
-                    <h4 className="text-sm font-medium text-palmkit-elements-textPrimary">{supabaseConn.user?.email}</h4>
+                    <h4 className="text-sm font-medium text-palmkit-elements-textPrimary">
+                      {supabaseConn.user?.email}
+                    </h4>
                     <p className="text-xs text-palmkit-elements-textSecondary">Role: {supabaseConn.user?.role}</p>
                   </div>
                 </div>
