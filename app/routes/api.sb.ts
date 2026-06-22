@@ -205,21 +205,32 @@ export async function action({ context, request }: ActionFunctionArgs) {
         const port = body.port ?? DEFAULT_PORT;
 
         /*
-         * Probe the PUBLIC e2b host on the real preview path — exactly what the
-         * iframe will load. This (unlike an inside-the-sandbox localhost curl)
-         * verifies the dev server is reachable externally (bound to 0.0.0.0) AND
-         * serves /preview/, so we never show the iframe while it would 502/404.
+         * Probe the PUBLIC e2b host to verify the dev server is up and serving.
+         *
+         * We try BOTH / and /preview/ because:
+         *  - Vite 5+ with --base=/preview/ serves HTML at /preview/
+         *  - Vite 4 and earlier with --base=/preview/ serves HTML at / (the
+         *    base only affects asset URLs, not the serving path)
+         *  - Other dev servers (Next.js, Astro, etc.) serve at /
+         *
+         * If EITHER path returns a 2xx/3xx, the sandbox is ready.
          */
         let code = 0;
 
-        try {
-          const probe = await fetch(`https://${port}-${body.id}.e2b.app/preview/`, {
-            method: 'GET',
-            redirect: 'manual',
-          });
-          code = probe.status;
-        } catch {
-          code = 0;
+        for (const probePath of ['/', '/preview/']) {
+          try {
+            const probe = await fetch(`https://${port}-${body.id}.e2b.app${probePath}`, {
+              method: 'GET',
+              redirect: 'manual',
+            });
+            code = probe.status;
+
+            if (code >= 200 && code < 400) {
+              break; // ready!
+            }
+          } catch {
+            // try next path
+          }
         }
 
         const ready = code >= 200 && code < 400;
