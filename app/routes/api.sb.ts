@@ -153,12 +153,13 @@ const serverOpts = {
 };
 
 let plugins = [];
+
 try {
-  const react = require('@vitejs/plugin-react');
+  const react = (await import('@vitejs/plugin-react')).default;
   plugins = [react()];
 } catch {}
 
-module.exports = { server: serverOpts, plugins };
+export default { server: serverOpts, plugins };
 `;
 
         try {
