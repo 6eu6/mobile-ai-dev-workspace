@@ -1,5 +1,5 @@
 import { type ActionFunctionArgs, type LoaderFunctionArgs, json } from '@remix-run/cloudflare';
-import { Sandbox as E2BSandbox, SandboxPaginator } from 'e2b';
+import { Sandbox as E2BSandbox } from 'e2b';
 import { getAuthedUser } from '~/lib/auth/supabase.server';
 
 /**
@@ -83,18 +83,30 @@ async function verifyOwnership(
 }
 
 /**
- * Count the user's currently running sandboxes by listing sandboxes filtered
- * by metadata.userId. Used for rate limiting.
+ * Count the user's currently running sandboxes by querying the E2B REST API
+ * directly via fetch (avoids importing SandboxPaginator which can break
+ * Cloudflare Workers bundling). Used for rate limiting.
  */
 async function countUserSandboxes(userId: string, apiKey: string): Promise<number> {
   try {
-    const paginator = new SandboxPaginator({
-      query: { metadata: { userId }, state: ['running'] },
-      apiKey,
+    const res = await fetch('https://api.e2b.dev/sandboxes?limit=100&state=running', {
+      headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
     });
-    const items = await paginator.nextItems();
 
-    return items.length;
+    if (!res.ok) {
+      return 0; // fail-open
+    }
+
+    const data = (await res.json()) as { sandboxes?: Array<{ metadata?: Record<string, string> }> };
+
+    /*
+     * Filter client-side by userId in metadata — the E2B list endpoint
+     * doesn't support metadata filtering in the query string, so we fetch
+     * all running sandboxes and count the ones owned by this user.
+     */
+    const userSandboxes = (data.sandboxes ?? []).filter((s) => s.metadata?.userId === userId);
+
+    return userSandboxes.length;
   } catch {
     /*
      * If listing fails, allow the create (fail-open to avoid blocking users
