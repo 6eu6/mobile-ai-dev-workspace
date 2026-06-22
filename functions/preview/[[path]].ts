@@ -182,8 +182,14 @@ export const onRequest: PagesFunction<Env> = async (context) => {
      */
     html = html.replace(/((?:src|href)\s*=\s*["'])\/(?!\/)/g, '$1/preview/');
 
-    // Rewrite bare import paths in inline scripts (Vite client uses these)
-    html = html.replace(/["']\/(@vite|@react-refresh|src|node_modules)\//g, '"/preview/$1/');
+    /*
+     * Rewrite bare import paths in inline module scripts.
+     * Vite injects: import { ... } from "/@react-refresh"
+     * and: import("/@vite/..."), import("/src/..."), etc.
+     * These are root-absolute and need the /preview prefix too.
+     * Match "/@name" or "/@name/..." — with or without trailing slash.
+     */
+    html = html.replace(/["']\/(@vite|@react-refresh|src|node_modules)(\/|["'])/g, '"/preview/$1$2');
 
     const tag = '<script src="/inspector-script.js"></script>';
 
