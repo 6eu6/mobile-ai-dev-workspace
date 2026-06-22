@@ -382,7 +382,71 @@
   }
 
   /* ============================================
-   * O) ANIMATIONS — Mobile overrides
+   * O-A) CHAT TOOLBAR — horizontal scroll, no scrollbar, fade indicator
+   * ============================================
+   * The chat input toolbar has 10+ buttons that don't all fit on a 390px
+   * screen. Instead of hiding buttons (which removes features), we let the
+   * left toolbar scroll horizontally — the standard mobile pattern.
+   *
+   * - Hide scrollbar on all browsers (webkit + firefox + IE)
+   * - Add a subtle gradient fade on the right edge so users know there are
+   *   more buttons to scroll to (only visible when scrollable)
+   * - Enable momentum scrolling on iOS
+   */
+  .bolt-toolbar-scroll {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+
+    /* Hide scrollbar on webkit (Safari, Chrome) */
+    &::-webkit-scrollbar {
+      display: none;
+      width: 0;
+      height: 0;
+    }
+
+    /* Hide scrollbar on Firefox */
+    scrollbar-width: none;
+
+    /* Position relative for the fade overlay */
+    position: relative;
+  }
+
+  /*
+   * Gradient fade on the right edge of the toolbar — indicates more buttons
+   * are available by scrolling. Applied via a pseudo-element on the toolbar's
+   * parent container (the flex row that wraps left + right sections).
+   * Only visible on screens < 640px where horizontal scroll is likely.
+   */
+  .bolt-toolbar-fade {
+    position: relative;
+  }
+
+  .bolt-toolbar-fade::after {
+    content: '';
+    position: absolute;
+    right: 80px; /* leave room for the right-side buttons (mic + send) */
+    top: 0;
+    bottom: 0;
+    width: 24px;
+    pointer-events: none;
+    z-index: 5;
+    background: linear-gradient(to right, transparent, var(--palmkit-elements-prompt-background, rgba(255, 255, 255, 0.95)));
+    opacity: 1;
+    transition: opacity 0.2s ease;
+
+    /* Only show on narrow screens */
+    @media (min-width: 768px) {
+      display: none;
+    }
+  }
+
+  /* When the toolbar is scrolled to the end, hide the fade (via JS-toggled class) */
+  .bolt-toolbar-fade.scrolled-end::after {
+    opacity: 0;
+  }
+
+  /* ============================================
+   * P) ANIMATIONS — Mobile overrides
    * ============================================ */
 
   /* Reduce motion for users who prefer it */
