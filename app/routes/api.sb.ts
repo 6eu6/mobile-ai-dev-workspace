@@ -155,11 +155,9 @@ if (files.length === 0) {
   for (const f of files) {
     let c = fs.readFileSync(f, 'utf-8');
     if (c.includes('allowedHosts')) continue;
-    if (c.match(/server\\s*:\\s*\\{/)) {
-      // Existing server block — inject inside it
-      c = c.replace(/(server\\s*:\\s*\\{)/, '$1 ' + inject);
-    } else if (c.match(/defineConfig\\s*\\(\\s*\\{/)) {
-      // defineConfig({ ... }) — add server block inside
+    if (c.match(/defineConfig\\s*\\(\\s*\\{/)) {
+      // defineConfig({ ... }) — add server block inside (check FIRST so we
+      // don't accidentally inject into a bare 'server: {' in a malformed config)
       c = c.replace(/(defineConfig\\s*\\(\\s*\\{)/, '$1 server: { ' + inject + ' },');
     } else if (c.match(/export\\s+default\\s*\\{/)) {
       // export default { ... } — add server block inside
@@ -167,6 +165,10 @@ if (files.length === 0) {
     } else if (c.match(/export\\s+default\\s+defineConfig/)) {
       // export default defineConfig({...}) — handle the defineConfig case
       c = c.replace(/(defineConfig\\s*\\(\\s*\\{)/, '$1 server: { ' + inject + ' },');
+    } else if (c.match(/server\\s*:\\s*\\{/) && c.match(/export\\s+default\\s*\\{/)) {
+      // Existing server block inside a VALID config object — inject inside it.
+      // (Only reached if the config has proper braces around the export.)
+      c = c.replace(/(server\\s*:\\s*\\{)/, '$1 ' + inject);
     } else if (c.match(/export\\s+default\\s/)) {
       // export default <something> — overwrite with a minimal working config.
       // This handles AI-generated configs like export default server: {...}
