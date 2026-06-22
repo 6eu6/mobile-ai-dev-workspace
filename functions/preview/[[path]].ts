@@ -47,19 +47,20 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   const [sandboxId, port = '3000'] = session.split(':');
 
   /*
-   * Forward the /preview/* path to the sandbox. We DO NOT strip the /preview
-   * prefix because Vite now runs WITHOUT --base=/preview/ (serving at /), so
-   * we need to translate /preview/* → /* on the sandbox.
+   * Forward the /preview/* path to the sandbox AS-IS (keep the /preview prefix).
    *
-   * The iframe loads /preview/ on our origin. Vite serves at / on the sandbox.
-   * So /preview/ → /, /preview/src/main.jsx → /src/main.jsx, etc.
+   * Vite runs with --base=/preview/ so it serves HTML at /preview/ and assets
+   * at /preview/src/... etc. The iframe loads /preview/ on our origin; we
+   * forward /preview/* → /preview/* on the sandbox.
    *
-   * This avoids the redirect loop that happened when Vite ran with
-   * --base=/preview/ (Vite redirected / → /preview/, our proxy stripped
-   * /preview → /, Vite redirected again → infinite loop).
+   * Vite's --base=/preview/ makes / redirect to /preview/ (which is fine —
+   * we never request / on the sandbox, only /preview/*).
+   *
+   * The redirect loop we hit before was caused by the proxy STRIPPING /preview
+   * (→ /), which Vite then redirected back to /preview/. Keeping the prefix
+   * avoids that.
    */
-  const sandboxPath = url.pathname.replace(/^\/preview/, '') || '/';
-  const target = `https://${port}-${sandboxId}.e2b.app${sandboxPath}${url.search}`;
+  const target = `https://${port}-${sandboxId}.e2b.app${url.pathname}${url.search}`;
 
   /*
    * WebSocket upgrade — Vite HMR + user app sockets.
