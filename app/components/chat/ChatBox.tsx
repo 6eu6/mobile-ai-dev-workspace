@@ -348,24 +348,32 @@ export const ChatBox: React.FC<ChatBoxProps> = (props) => {
           <div className="shrink-0 w-px h-5 mx-0.5 bg-palmkit-elements-borderColor" />
 
           <ToolButton icon="i-ph:paperclip" title="Attach image" onClick={props.handleFileUpload} />
-          <ToolButton
-            icon="i-palmkit:stars"
-            title="Enhance prompt"
-            onClick={() => {
-              props.enhancePrompt?.();
-              toast.success('Prompt enhanced!');
-            }}
-            disabled={props.input.length === 0 || props.enhancingPrompt}
-            loading={props.enhancingPrompt}
-          />
 
-          {/* Self-contained dialog / action triggers */}
-          <ClientOnly>
-            {() => <WebSearch onSearchResult={props.onWebSearchResult || (() => {})} disabled={props.isStreaming} />}
-          </ClientOnly>
-          <ColorSchemeDialog designScheme={props.designScheme} setDesignScheme={props.setDesignScheme} />
-          <McpTools />
-          <SupabaseConnection />
+          {/* Secondary tools — hidden on mobile to reduce input-box clutter.
+              Mobile users get: model chip + attach + build/discuss + mic + send.
+              These tools (enhance, web search, design palette, MCP, supabase)
+              are power-user features that are hard to use on a phone keyboard
+              anyway; they remain fully accessible on >=640px (sm) screens. */}
+          <div className="hidden sm:contents">
+            <ToolButton
+              icon="i-palmkit:stars"
+              title="Enhance prompt"
+              onClick={() => {
+                props.enhancePrompt?.();
+                toast.success('Prompt enhanced!');
+              }}
+              disabled={props.input.length === 0 || props.enhancingPrompt}
+              loading={props.enhancingPrompt}
+            />
+
+            {/* Self-contained dialog / action triggers */}
+            <ClientOnly>
+              {() => <WebSearch onSearchResult={props.onWebSearchResult || (() => {})} disabled={props.isStreaming} />}
+            </ClientOnly>
+            <ColorSchemeDialog designScheme={props.designScheme} setDesignScheme={props.setDesignScheme} />
+            <McpTools />
+            <SupabaseConnection />
+          </div>
         </div>
 
         {/* Right: mode toggle + mic + send (always visible) */}

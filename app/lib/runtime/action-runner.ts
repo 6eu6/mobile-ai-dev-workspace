@@ -14,40 +14,109 @@ import { unreachable } from '~/utils/unreachable';
 import type { ActionCallbackData } from './message-parser';
 import type { PalmkitShell } from '~/utils/shell';
 import { isMemoryConstrainedDevice, isRemoteSandboxAvailable } from '~/lib/sandbox/remoteSandbox';
+import { webcontainerContext } from '~/lib/webcontainer';
 
 const logger = createScopedLogger('ActionRunner');
 
 /**
- * On memory-constrained devices (mobile Safari) with a configured cloud sandbox
- * (E2B), the in-browser WebContainer is used only to author files — command
- * execution (install / dev server / build) is offloaded to the server so it
- * doesn't fail locally ("vite not found") or show an empty in-browser preview.
+ * Max time to wait for WebContainer to finish booting before falling back to
+ * the cloud sandbox on desktop. 15s is generous — on a warm page load WebContainer
+ * boots in 2-5s; if it hasn't loaded by 15s the browser likely lacks the
+ * SharedArrayBuffer / COOP-COEP requirements (headless browsers, some
+ * embedded webviews, locked-down corporate browsers).
+ */
+const WEBCONTAINER_BOOT_TIMEOUT_MS = 15_000;
+
+/**
+ * On memory-constrained devices (mobile Safari) OR when the in-browser
+ * WebContainer cannot boot (headless browsers, browsers without
+ * SharedArrayBuffer, COOP/COEP misconfig), shell execution (install / dev
+ * server / build) is offloaded to the cloud sandbox (E2B) so the preview
+ * actually shows up instead of "No preview available".
  *
- * Awaits the availability check (don't rely on a maybe-unpopulated cache) to
- * avoid a race where WebContainer starts its own dev server before we know E2B
- * is available.
+ * File actions still run locally (best-effort) so the file tree populates.
+ *
+ * Awaits the E2B availability check (don't rely on a maybe-unpopulated cache)
+ * to avoid a race where WebContainer starts its own dev server before we know
+ * E2B is available.
  */
 async function shouldOffloadExecution(): Promise<boolean> {
   const constrained = isMemoryConstrainedDevice();
 
-  if (!constrained) {
-    logger.info(`[offload] not a memory-constrained device — running locally`);
-    return false;
-  }
+  // Fast path: memory-constrained device → always offload to cloud if E2B is up.
+  if (constrained) {
+    const available = await isRemoteSandboxAvailable();
+    logger.info(`[offload] constrained=${constrained}, e2b=${available}`);
 
-  const available = await isRemoteSandboxAvailable();
-  logger.info(`[offload] constrained=${constrained}, e2b=${available}`);
+    if (!available) {
+      logger.warn(`[offload] E2B not available — forcing local execution on constrained device. Preview may be slow.`);
+      return false;
+    }
+
+    return true;
+  }
 
   /*
-   * If E2B is not available, we MUST run locally even on constrained devices.
-   * A working (possibly slow) preview is better than no preview at all.
+   * Desktop path: WebContainer is the default, but it can fail to boot in
+   * environments that lack SharedArrayBuffer (headless browsers, locked-down
+   * webviews, broken COOP/COEP). Detect that and fall back to E2B so the
+   * preview still works instead of hanging on "No preview available".
    */
-  if (!available) {
-    logger.warn(`[offload] E2B not available — forcing local execution on constrained device. Preview may be slow.`);
+  if (webcontainerContext.loaded) {
+    logger.debug(`[offload] WebContainer already loaded — running locally`);
     return false;
   }
 
-  return true;
+  // WebContainer not loaded yet — wait briefly, then decide.
+  const loaded = await waitForWebContainerBoot(WEBCONTAINER_BOOT_TIMEOUT_MS);
+
+  if (loaded) {
+    logger.debug(`[offload] WebContainer booted within timeout — running locally`);
+    return false;
+  }
+
+  logger.warn(
+    `[offload] WebContainer did not boot within ${WEBCONTAINER_BOOT_TIMEOUT_MS / 1000}s — checking E2B fallback`,
+  );
+
+  const available = await isRemoteSandboxAvailable();
+
+  if (available) {
+    logger.info(`[offload] falling back to E2B cloud sandbox (WebContainer unavailable)`);
+    return true;
+  }
+
+  logger.warn(
+    `[offload] WebContainer unavailable AND E2B not configured — no preview will work. Set E2B_API_KEY in Cloudflare env.`,
+  );
+
+  return false;
+}
+
+/**
+ * Resolves true if WebContainer finishes booting within `timeoutMs`, false
+ * otherwise. Uses the shared `webcontainerContext.loaded` flag (set by the
+ * boot promise in webcontainer/index.ts). Polls lightly — boot is an
+ * all-or-nothing event, not a gradual stream.
+ */
+function waitForWebContainerBoot(timeoutMs: number): Promise<boolean> {
+  if (webcontainerContext.loaded) {
+    return Promise.resolve(true);
+  }
+
+  return new Promise((resolve) => {
+    const deadline = Date.now() + timeoutMs;
+    const interval = 250;
+    const timer = setInterval(() => {
+      if (webcontainerContext.loaded) {
+        clearInterval(timer);
+        resolve(true);
+      } else if (Date.now() >= deadline) {
+        clearInterval(timer);
+        resolve(false);
+      }
+    }, interval);
+  });
 }
 
 export type ActionStatus = 'pending' | 'running' | 'complete' | 'aborted' | 'failed';

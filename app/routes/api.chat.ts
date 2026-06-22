@@ -458,13 +458,10 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
         const lowerMessage = errorMessage.toLowerCase();
 
         /*
-         * DEBUG (temporary): surface the FULL error to the client so we can
-         * diagnose the 403 from the provider — the bare 'Forbidden' string
-         * hides the real cause (status, response body, cause). Remove after
-         * diagnosis.
+         * Full error logged server-side for diagnosis (visible in Cloudflare
+         * Pages function logs / wrangler tail).
          */
-        const errorDump = JSON.stringify(error, Object.getOwnPropertyNames(error), 2).slice(0, 2000);
-        logger.error('chat stream onError (full):', errorDump);
+        logger.error('chat stream onError:', errorMessage, error?.cause || '');
 
         if (errorMessage.includes('model') && errorMessage.includes('not found')) {
           return 'Custom error: Invalid model selected. Please check that the model name is correct and available.';
@@ -490,7 +487,7 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
           lowerMessage.includes('403') ||
           lowerMessage.includes('access denied')
         ) {
-          return `Custom error: [DEBUG] ${errorMessage} ||| dump=${errorDump}`;
+          return 'Custom error: The AI provider rejected the request (Forbidden). This usually means the selected model is not enabled for your API key, your account has insufficient credits, or the model has been deprecated. Try selecting a different model (e.g. a free one) or check your provider account.';
         }
 
         if (
