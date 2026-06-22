@@ -104,8 +104,26 @@ export default class OpenRouterProvider extends BaseProvider {
       throw new Error(`Missing API key for ${this.name} provider`);
     }
 
+    /*
+     * OpenRouter requires HTTP-Referer and X-Title headers for production
+     * applications. Without them, requests from server-side runtimes
+     * (Cloudflare Workers) can be rejected with a 403 Forbidden even when
+     * the API key is valid and has credits — the request looks like an
+     * unattributed bot. See:
+     *   https://openrouter.ai/docs/api-reference/overview#headers
+     *
+     * The app URL/name are resolved at runtime so they work in both
+     * production (palmkit.app) and preview deployments.
+     */
+    const appUrl = (typeof process !== 'undefined' && (process as any).env?.VITE_APP_URL) || 'https://palmkit.app';
+    const appName = 'Palmkit';
+
     const openRouter = createOpenRouter({
       apiKey,
+      headers: {
+        'HTTP-Referer': appUrl,
+        'X-Title': appName,
+      },
     });
     const instance = openRouter.chat(model) as LanguageModelV1;
 
