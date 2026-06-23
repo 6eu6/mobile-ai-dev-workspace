@@ -8,6 +8,8 @@ import { useMessageParser, usePromptEnhancer, useShortcuts, finalizeMessageParse
 import { description, useChatHistory } from '~/lib/persistence';
 import { chatStore } from '~/lib/stores/chat';
 import { workbenchStore } from '~/lib/stores/workbench';
+import { setBuildStatus, resetBuildStatus } from '~/lib/stores/build-status';
+import type { BuildCompleteness, BuildJobStatus } from '~/lib/stores/build-status';
 import { DEFAULT_MODEL, DEFAULT_PROVIDER, PROMPT_COOKIE_KEY, PROVIDER_LIST } from '~/utils/constants';
 import { cubicEasingFn } from '~/utils/easings';
 import { createScopedLogger, renderLogger } from '~/utils/logger';
@@ -302,6 +304,61 @@ export const ChatImpl = memo(
       });
     }, [messages, isLoading, parseMessages]);
 
+    /*
+     * Phase 1 Safety Gate — Sync validation annotations to buildStatusStore.
+     *
+     * api.chat.ts emits `writeMessageAnnotation({type:'validation', value:{...}})`
+     * after each segment. The AI SDK delivers these on `message.annotations`.
+     * We pick the LATEST validation annotation from the most recent assistant
+     * message and push it into the build-status store. The Preview component
+     * reads that store to decide whether to render the iframe or show the
+     * "No preview available" state.
+     *
+     * See ROADMAP.md → Phase 1 → "Fix partial preview".
+     */
+    useEffect(() => {
+      if (messages.length === 0) {
+        return;
+      }
+
+      const lastMessage = messages[messages.length - 1];
+
+      if (lastMessage.role !== 'assistant') {
+        return;
+      }
+
+      const annotations = (lastMessage as Message & { annotations?: unknown[] }).annotations;
+
+      if (!Array.isArray(annotations) || annotations.length === 0) {
+        return;
+      }
+
+      // Find the most recent validation annotation.
+      const validationAnns = annotations.filter(
+        (a): a is { type: 'validation'; value: Record<string, unknown> } =>
+          typeof a === 'object' &&
+          a !== null &&
+          (a as { type?: string }).type === 'validation',
+      );
+
+      if (validationAnns.length === 0) {
+        return;
+      }
+
+      const latest = validationAnns[validationAnns.length - 1].value;
+
+      setBuildStatus({
+        completeness: (latest.completeness as BuildCompleteness) ?? 'unknown',
+        jobStatus: (latest.jobStatus as BuildJobStatus) ?? 'generating',
+        hasCompletionMarker: Boolean(latest.hasCompletionMarker),
+        artifactTagsBalanced: Boolean(latest.artifactTagsBalanced),
+        fileActionsBalanced: Boolean(latest.fileActionsBalanced),
+        fileCount: Number(latest.fileCount ?? 0),
+        issues: Array.isArray(latest.issues) ? latest.issues : [],
+        retryCount: Number(latest.retryCount ?? 0),
+      });
+    }, [messages]);
+
     /**
      * FIX #3: Watch workbenchStore.files changes during streaming and save
      * debounced snapshots to IndexedDB. This ensures files are persisted even
@@ -561,6 +618,9 @@ export const ChatImpl = memo(
       }
 
       runAnimation();
+
+      // Phase 1 Safety Gate: reset build status at the start of each new build.
+      resetBuildStatus();
 
       if (!chatStarted) {
         setFakeLoading(true);

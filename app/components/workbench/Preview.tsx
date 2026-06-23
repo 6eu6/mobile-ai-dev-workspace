@@ -7,6 +7,7 @@ import { PortDropdown } from './PortDropdown';
 import { ScreenshotSelector } from './ScreenshotSelector';
 import { expoUrlAtom } from '~/lib/stores/qrCodeStore';
 import { ExpoQrModal } from '~/components/workbench/ExpoQrModal';
+import { canShowPreview, buildStatusMessage, buildStatusStore } from '~/lib/stores/build-status';
 import type { ElementInfo } from './Inspector';
 
 type ResizeSide = 'left' | 'right' | null;
@@ -63,6 +64,24 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
   const hasSelectedPreview = useRef(false);
   const previews = useStore(workbenchStore.previews);
   const activePreview = previews[activePreviewIndex];
+
+  /*
+   * Phase 1 Safety Gate — Ready-for-Preview Gate.
+   *
+   * `canShowPreview` is a computed store that returns false while a build is
+   * in progress, incomplete, or failed. When false, we block the iframe from
+   * rendering (src=undefined) and show a status-aware "No preview available"
+   * state instead. This prevents partial/broken previews from reaching the
+   * user — the #1 complaint before Phase 1.
+   *
+   * See ROADMAP.md → Phase 1 → "Fix partial preview".
+   */
+  const canShowPreviewValue = useStore(canShowPreview);
+  const buildStatusMessageValue = useStore(buildStatusMessage);
+  const buildStatusValue = useStore(buildStatusStore);
+
+  // Effective preview: only render if (a) a preview exists AND (b) the gate is open.
+  const effectiveActivePreview = canShowPreviewValue ? activePreview : undefined;
   const [displayPath, setDisplayPath] = useState('/');
   const [iframeUrl, setIframeUrl] = useState<string | undefined>();
   const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -915,7 +934,7 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
             alignItems: 'center',
           }}
         >
-          {activePreview ? (
+          {effectiveActivePreview ? (
             <>
               {isDeviceModeOn && showDeviceFrameInPreview ? (
                 <div
@@ -1026,11 +1045,17 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
                 </div>
                 <div>
                   <h3 className="text-sm font-semibold text-palmkit-elements-textPrimary mb-1.5">
-                    No preview available
+                    {buildStatusValue.jobStatus === 'failed_clean'
+                      ? 'Build failed'
+                      : buildStatusValue.jobStatus === 'incomplete_retrying'
+                        ? 'Still building…'
+                        : buildStatusValue.jobStatus === 'generating'
+                          ? 'Building your app…'
+                          : 'No preview available'}
                   </h3>
                   <p className="text-xs text-palmkit-elements-textTertiary leading-relaxed">
-                    Start a conversation or wait for the runtime to initialize. Preview will appear here once the app is
-                    running.
+                    {buildStatusMessageValue ||
+                      'Start a conversation or wait for the runtime to initialize. Preview will appear here once the app is running.'}
                   </p>
                 </div>
                 <div className="flex items-center gap-2 mt-1">
