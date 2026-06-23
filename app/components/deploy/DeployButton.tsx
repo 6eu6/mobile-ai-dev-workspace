@@ -15,6 +15,7 @@ import { useGitHubDeploy } from '~/components/deploy/GitHubDeploy.client';
 import { useGitLabDeploy } from '~/components/deploy/GitLabDeploy.client';
 import { GitHubDeploymentDialog } from '~/components/deploy/GitHubDeploymentDialog';
 import { GitLabDeploymentDialog } from '~/components/deploy/GitLabDeploymentDialog';
+import { usePalmkitDeploy } from '~/components/deploy/PalmkitDeploy.client';
 
 interface DeployButtonProps {
   onVercelDeploy?: () => Promise<void>;
@@ -36,12 +37,13 @@ export const DeployButton = ({
   const previews = useStore(workbenchStore.previews);
   const activePreview = previews[activePreviewIndex];
   const [isDeploying, setIsDeploying] = useState(false);
-  const [deployingTo, setDeployingTo] = useState<'netlify' | 'vercel' | 'github' | 'gitlab' | null>(null);
+  const [deployingTo, setDeployingTo] = useState<'netlify' | 'vercel' | 'github' | 'gitlab' | 'palmkit' | null>(null);
   const isStreaming = useStore(streamingState);
   const { handleVercelDeploy } = useVercelDeploy();
   const { handleNetlifyDeploy } = useNetlifyDeploy();
   const { handleGitHubDeploy } = useGitHubDeploy();
   const { handleGitLabDeploy } = useGitLabDeploy();
+  const { handlePalmkitDeploy } = usePalmkitDeploy();
   const [showGitHubDeploymentDialog, setShowGitHubDeploymentDialog] = useState(false);
   const [showGitLabDeploymentDialog, setShowGitLabDeploymentDialog] = useState(false);
   const [githubDeploymentFiles, setGithubDeploymentFiles] = useState<Record<string, string> | null>(null);
@@ -125,6 +127,18 @@ export const DeployButton = ({
     }
   };
 
+  const handlePalmkitDeployClick = async () => {
+    setIsDeploying(true);
+    setDeployingTo('palmkit');
+
+    try {
+      await handlePalmkitDeploy();
+    } finally {
+      setIsDeploying(false);
+      setDeployingTo(null);
+    }
+  };
+
   return (
     <>
       <div className="flex border border-palmkit-elements-borderColor rounded-md overflow-hidden text-sm">
@@ -148,6 +162,29 @@ export const DeployButton = ({
             sideOffset={5}
             align="end"
           >
+            {/*
+             * Deploy to Palmkit — internal hosting.
+             * Always available (no external account needed).
+             * Serves the app at /p/{slug} on palmkit.app.
+             */}
+            <DropdownMenu.Item
+              className={classNames(
+                'cursor-pointer flex items-center w-full px-4 py-2 text-sm text-palmkit-elements-textPrimary hover:bg-palmkit-elements-item-backgroundActive gap-2 rounded-md group relative',
+                {
+                  'opacity-60 cursor-not-allowed': isDeploying || !activePreview || isStreaming,
+                },
+              )}
+              disabled={isDeploying || !activePreview || isStreaming}
+              onClick={handlePalmkitDeployClick}
+            >
+              <div className="i-ph:rocket-launch w-5 h-5 flex items-center justify-center text-amber-500" />
+              <span className="mx-auto">
+                {deployingTo === 'palmkit' ? 'Deploying to Palmkit...' : 'Deploy to Palmkit'}
+              </span>
+            </DropdownMenu.Item>
+
+            <DropdownMenu.Separator className="h-px bg-palmkit-elements-borderColor my-1" />
+
             <DropdownMenu.Item
               className={classNames(
                 'cursor-pointer flex items-center w-full px-4 py-2 text-sm text-palmkit-elements-textPrimary hover:bg-palmkit-elements-item-backgroundActive gap-2 rounded-md group relative',
