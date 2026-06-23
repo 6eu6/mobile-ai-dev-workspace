@@ -1,0 +1,27 @@
+{
+  "name": "palmkit-external-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Palmkit External Build Worker — durable multi-step generation outside Cloudflare Pages. See ../ROADMAP.md Phase 2.",
+  "scripts": {
+    "dev": "bun --hot src/index.ts",
+    "start": "bun src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "ai": "^4.0.0",
+    "@ai-sdk/openai": "^1.0.0",
+    "hono": "^4.6.0",
+    "@hono/node-server": "^1.13.0",
+    "nanoid": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.0",
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "bun": ">=1.1.0"
+  }
+}
