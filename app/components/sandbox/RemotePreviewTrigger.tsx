@@ -103,13 +103,34 @@ export const RemotePreviewTrigger = memo(() => {
        * PROJECT ANALYZER — check if this is a static HTML/CSS/JS project.
        * If so, render it instantly via iframe blob URL (zero E2B cost).
        * Only fall through to E2B if the project needs a real server.
+       *
+       * RUNTIME TRANSITION HANDLING:
+       * The project type can change mid-conversation:
+       *   static → vite  (user adds React)
+       *   vite → static  (user removes package.json)
+       *   static → node  (user adds express backend)
+       *
+       * When transitioning:
+       *   static → E2B/WC: kill the old blob URL, start E2B/WC
+       *   E2B/WC → static: kill the old sandbox, show blob URL
+       *   E2B → E2B (same type): just push new files (existing behavior)
        */
       const analysis = analyzeProject(files);
       logger.info(`project analysis: ${analysis.type} — ${analysis.reason}`);
 
       if (analysis.type === 'static') {
-        // Static project — render directly in iframe, no sandbox needed
-        clearStaticPreview(); // clean up any previous static preview
+        /*
+         * Project is static — render in iframe.
+         * BUT: if an E2B sandbox is currently running (project was previously
+         * non-static), kill it first — we don't need it anymore and it costs
+         * money for nothing.
+         */
+        if (sandbox.state !== 'idle') {
+          logger.info('transitioning from E2B → static: killing sandbox');
+          resetRemotePreview();
+        }
+
+        clearStaticPreview(); // clean up any previous static blob URL
 
         const ok = showStaticPreview(files, analysis.entryHtmlPath);
 
@@ -120,6 +141,14 @@ export const RemotePreviewTrigger = memo(() => {
 
         // If static preview failed (e.g., no HTML file), fall through to E2B
         logger.warn('static preview failed, falling back to E2B');
+      } else {
+        /*
+         * Project needs a real server (vite/nextjs/node).
+         * If a static blob URL preview is currently showing (project was
+         * previously static), clear it — it's stale and will be replaced
+         * by the E2B/WebContainer preview.
+         */
+        clearStaticPreview();
       }
 
       // Non-static project — use E2B (mobile) or WebContainer (desktop)
