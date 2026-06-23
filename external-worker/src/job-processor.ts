@@ -1,24 +1,26 @@
 /**
- * Job Processor — Phase 2 Skeleton
+ * Job Processor — Phase 2 ACTUAL implementation
  *
- * Picks up a pending build_job from Supabase, claims it atomically, and runs
- * the generation pipeline:
+ * Lifecycle:
+ *   pending → generating → validating → uploading_snapshot → ready_for_preview
+ *   OR
+ *   pending → generating → failed_clean (with error message)
  *
- *   1. plan          — LLM generates project_spec (features, stack, file tree)
- *   2. generate      — for each file in the tree, LLM generates full content
- *   3. validate      — run output-validator on each file
- *   4. repair        — if any file fails validation, LLM patches it
- *   5. finalize      — write all files to R2, manifest to Supabase,
- *                      set job status = ready_for_preview
- *
- * Each step is recorded in build_steps with status + summary.
- *
- * This file is a SKELETON — steps 1-5 are stubbed with TODOs that will be
- * implemented in subsequent commits as we migrate logic from api.chat.ts.
+ * Each phase:
+ *   1. claim: atomic claim via claim_next_build_job() RPC
+ *   2. plan: planProject(prompt) → spec
+ *   3. generate: generateStaticFiles(prompt, spec) → files
+ *   4. validate: validateGeneration(result) → issues
+ *   5. upload: write each file to R2 at projects/{projectId}/jobs/{jobId}/files/{path}
+ *   6. manifest: insert project_files_manifest rows (metadata only)
+ *   7. finalize: status = ready_for_preview
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { logger } from './logger';
+import { planProject, generateStaticFiles, validateGeneration, type GenerationResult } from './generator';
+import { putFile, buildKey } from './r2-client';
+import { createHash } from 'crypto';
 
 interface BuildJob {
   id: string;
@@ -28,66 +30,29 @@ interface BuildJob {
   current_step: string | null;
   progress: number;
   retry_count: number;
+  validation_result: any;
 }
 
 /**
- * Atomically claim the next pending job.
- *
- * Uses a Supabase RPC that does:
- *   UPDATE build_jobs
- *   SET status = 'generating', current_step = 'claim'
- *   WHERE id = (
- *     SELECT id FROM build_jobs
- *     WHERE status = 'pending'
- *     ORDER BY created_at
- *     FOR UPDATE SKIP LOCKED
- *     LIMIT 1
- *   )
- *   RETURNING *;
- *
- * The SKIP LOCKED ensures multiple workers don't grab the same job.
- *
- * TODO: create this RPC in migration 0007. For now, we do a two-step
- * select-then-update which is NOT atomic but works for a single worker.
+ * Atomically claim the next pending job using the RPC.
  */
 async function claimNextJob(supabase: SupabaseClient): Promise<BuildJob | null> {
-  // Phase 2 TODO: replace with RPC `claim_next_build_job()`
-  const { data: jobs, error } = await supabase
-    .from('build_jobs')
-    .select('*')
-    .eq('status', 'pending')
-    .order('created_at', { ascending: true })
-    .limit(1);
+  const { data, error } = await supabase.rpc('claim_next_build_job');
 
   if (error) {
-    logger.error('Failed to fetch pending jobs:', error.message);
+    logger.error('claim_next_build_job RPC failed:', error.message);
     return null;
   }
 
-  if (!jobs || jobs.length === 0) {
+  if (!data) {
     return null;
   }
 
-  const job = jobs[0] as BuildJob;
-
-  // Attempt to claim (optimistic — assumes single worker for now)
-  const { error: updateError } = await supabase
-    .from('build_jobs')
-    .update({ status: 'generating', current_step: 'claim', updated_at: new Date().toISOString() })
-    .eq('id', job.id)
-    .eq('status', 'pending'); // guard against race
-
-  if (updateError) {
-    logger.error(`Failed to claim job ${job.id}:`, updateError.message);
-    return null;
-  }
-
-  logger.info(`Claimed job ${job.id} for user ${job.user_id}`);
-  return job;
+  return data as BuildJob;
 }
 
 /**
- * Record a build step in the build_steps table.
+ * Record a build step.
  */
 async function recordStep(
   supabase: SupabaseClient,
@@ -129,75 +94,208 @@ async function updateJobProgress(
 }
 
 /**
+ * Mark job as failed_clean with an error message.
+ */
+async function failJob(supabase: SupabaseClient, jobId: string, errorMessage: string): Promise<void> {
+  logger.error(`Job ${jobId} FAILED: ${errorMessage}`);
+
+  await supabase
+    .from('build_jobs')
+    .update({
+      status: 'failed_clean',
+      error_summary: errorMessage.slice(0, 500),
+      current_step: 'failed',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', jobId);
+
+  await recordStep(supabase, jobId, {
+    type: 'finalize',
+    status: 'failed',
+    order: 99,
+    error: errorMessage,
+  });
+}
+
+/**
  * Process one job end-to-end.
- *
- * TODO: implement each phase. Currently stubbed to demonstrate the flow
- * and the Supabase update pattern. Real implementation will migrate
- * logic from app/routes/api.chat.ts.
  */
 export async function processNextJob(supabase: SupabaseClient): Promise<void> {
   const job = await claimNextJob(supabase);
 
   if (!job) {
-    return; // no pending jobs
+    return;
   }
 
-  logger.info(`Processing job ${job.id}`);
+  logger.info(`Processing job ${job.id} (user=${job.user_id})`);
+
+  // Extract prompt from validation_result (stored by /api/jobs on enqueue).
+  const prompt: string = job.validation_result?.prompt ?? '';
+  const model: string = job.validation_result?.model ?? 'deepseek/deepseek-chat-v3.1';
+
+  if (!prompt) {
+    await failJob(supabase, job.id, 'No prompt found in job metadata');
+    return;
+  }
 
   try {
-    // Phase 1: plan
+    // ─── Phase 1: PLAN ─────────────────────────────────────────────────
     await updateJobProgress(supabase, job.id, 10, 'plan');
-    await recordStep(supabase, job.id, { type: 'plan', status: 'running', order: 1 });
+    await recordStep(supabase, job.id, { type: 'plan', status: 'running', order: 1, inputSummary: prompt.slice(0, 100) });
 
-    // TODO: call LLM to generate project_spec.json
-    // const spec = await planProject(job);
-    await sleep(100); // placeholder
+    const spec = planProject(prompt);
 
     await recordStep(supabase, job.id, {
       type: 'plan',
       status: 'completed',
       order: 1,
-      outputSummary: 'spec generated (TODO)',
+      outputSummary: `spec: ${spec.appType}, ${spec.files.length} files`,
     });
 
-    // Phase 2: generate files
+    logger.info(`Job ${job.id}: plan complete → ${spec.appType}, ${spec.files.length} files`);
+
+    // ─── Phase 2: GENERATE ─────────────────────────────────────────────
     await updateJobProgress(supabase, job.id, 30, 'generate_files');
     await recordStep(supabase, job.id, { type: 'generate_file', status: 'running', order: 2 });
 
-    // TODO: for each file in spec.fileTree:
-    //   const content = await generateFile(job, filePath, spec);
-    //   await writeToR2(`${job.project_id}/${filePath}`, content);
-    //   await recordManifestEntry(supabase, job.project_id, filePath, hash, size);
-    await sleep(100);
+    let result: GenerationResult;
+
+    try {
+      result = await generateStaticFiles(prompt, spec, model);
+    } catch (genError: any) {
+      await recordStep(supabase, job.id, {
+        type: 'generate_file',
+        status: 'failed',
+        order: 2,
+        error: genError.message,
+      });
+      await failJob(supabase, job.id, `Generation failed: ${genError.message}`);
+      return;
+    }
 
     await recordStep(supabase, job.id, {
       type: 'generate_file',
       status: 'completed',
       order: 2,
-      outputSummary: 'files generated (TODO)',
+      outputSummary: `${result.files.length} files, ${result.rawText.length} chars`,
     });
 
-    // Phase 3: validate
-    await updateJobProgress(supabase, job.id, 60, 'validate');
+    logger.info(`Job ${job.id}: generation complete → ${result.files.length} files`);
+
+    // ─── Phase 3: VALIDATE ─────────────────────────────────────────────
+    await updateJobProgress(supabase, job.id, 50, 'validate');
     await recordStep(supabase, job.id, { type: 'validate', status: 'running', order: 3 });
 
-    // TODO: run output-validator on each file
-    await sleep(100);
+    const issues = validateGeneration(result);
+
+    if (issues.length > 0) {
+      await recordStep(supabase, job.id, {
+        type: 'validate',
+        status: 'failed',
+        order: 3,
+        error: issues.join('; '),
+      });
+      await failJob(supabase, job.id, `Validation failed: ${issues.join('; ')}`);
+      return;
+    }
 
     await recordStep(supabase, job.id, {
       type: 'validate',
       status: 'completed',
       order: 3,
-      outputSummary: 'validation passed (TODO)',
+      outputSummary: 'all checks passed',
     });
 
-    // Phase 4: repair (if needed)
-    // TODO: if validation fails, call LLM with error + file → patch
+    logger.info(`Job ${job.id}: validation passed`);
 
-    // Phase 5: finalize
-    await updateJobProgress(supabase, job.id, 100, 'finalize');
+    // ─── Phase 4: UPLOAD TO R2 ─────────────────────────────────────────
+    await updateJobProgress(supabase, job.id, 70, 'uploading_snapshot');
     await recordStep(supabase, job.id, { type: 'finalize', status: 'running', order: 4 });
 
+    const projectId = job.project_id ?? job.id; // use jobId as projectId if no project yet
+    const manifestEntries: Array<Record<string, unknown>> = [];
+
+    for (const file of result.files) {
+      const r2Key = buildKey(job.id, file.path, job.project_id ?? undefined);
+      const content = file.content;
+      const hash = createHash('sha256').update(content).digest('hex');
+      const sizeBytes = new TextEncoder().encode(content).length;
+
+      // Upload to R2 (primary storage).
+      try {
+        await putFile(r2Key, content);
+        logger.debug(`R2 upload OK: ${r2Key} (${sizeBytes} bytes)`);
+      } catch (uploadError: any) {
+        await recordStep(supabase, job.id, {
+          type: 'finalize',
+          status: 'failed',
+          order: 4,
+          error: `R2 upload failed for ${file.path}: ${uploadError.message}`,
+        });
+        await failJob(supabase, job.id, `R2 upload failed for ${file.path}: ${uploadError.message}`);
+        return;
+      }
+
+      // Mirror to Supabase Storage (read-through cache for the browser).
+      // The browser can't access R2 directly (no CORS, no creds). CF Pages
+      // /api/files reads from here. R2 remains the canonical primary copy.
+      const sbKey = `${job.user_id}/${r2Key}`;
+
+      try {
+        const { error: sbUploadError } = await supabase.storage
+          .from('palmkit-files')
+          .upload(sbKey, content, {
+            contentType: file.mime_type ?? 'text/plain',
+            upsert: true,
+          });
+
+        if (sbUploadError) {
+          logger.warn(`Supabase Storage mirror failed for ${file.path}: ${sbUploadError.message} (non-fatal, R2 has the copy)`);
+        }
+      } catch (sbErr: any) {
+        logger.warn(`Supabase Storage mirror exception for ${file.path}: ${sbErr.message} (non-fatal)`);
+      }
+
+      // Record manifest entry (metadata only — no content in DB).
+      manifestEntries.push({
+        job_id: job.id,
+        project_id: job.project_id,
+        user_id: job.user_id,
+        path: file.path,
+        version: 1,
+        hash,
+        size_bytes: sizeBytes,
+        mime_type: file.mime_type ?? 'text/plain',
+        storage_provider: 'r2',
+        storage_key: r2Key,
+        integrity: 'complete',
+      });
+    }
+
+    // Insert all manifest entries.
+    const { error: manifestError } = await supabase.from('project_files_manifest').insert(manifestEntries);
+
+    if (manifestError) {
+      await recordStep(supabase, job.id, {
+        type: 'finalize',
+        status: 'failed',
+        order: 4,
+        error: `Manifest insert failed: ${manifestError.message}`,
+      });
+      await failJob(supabase, job.id, `Manifest insert failed: ${manifestError.message}`);
+      return;
+    }
+
+    await recordStep(supabase, job.id, {
+      type: 'finalize',
+      status: 'completed',
+      order: 4,
+      outputSummary: `${manifestEntries.length} files uploaded to R2 + manifest`,
+    });
+
+    logger.info(`Job ${job.id}: upload complete → ${manifestEntries.length} files in R2`);
+
+    // ─── Phase 5: FINALIZE ─────────────────────────────────────────────
     const { error: finalizeError } = await supabase
       .from('build_jobs')
       .update({
@@ -205,6 +303,11 @@ export async function processNextJob(supabase: SupabaseClient): Promise<void> {
         current_step: 'done',
         progress: 100,
         has_completion_marker: true,
+        validation_result: {
+          ...job.validation_result,
+          fileCount: result.files.length,
+          completeness: 'complete',
+        },
         updated_at: new Date().toISOString(),
       })
       .eq('id', job.id);
@@ -213,35 +316,8 @@ export async function processNextJob(supabase: SupabaseClient): Promise<void> {
       throw new Error(`Failed to finalize job: ${finalizeError.message}`);
     }
 
-    await recordStep(supabase, job.id, {
-      type: 'finalize',
-      status: 'completed',
-      order: 4,
-      outputSummary: 'job ready_for_preview',
-    });
-
-    logger.info(`Job ${job.id} completed → ready_for_preview`);
+    logger.info(`Job ${job.id} → ready_for_preview ✅`);
   } catch (err: any) {
-    logger.error(`Job ${job.id} failed:`, err.message);
-
-    await supabase
-      .from('build_jobs')
-      .update({
-        status: 'failed_clean',
-        error_summary: err.message ?? 'Unknown error',
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', job.id);
-
-    await recordStep(supabase, job.id, {
-      type: 'finalize',
-      status: 'failed',
-      order: 4,
-      error: err.message,
-    });
+    await failJob(supabase, job.id, err.message ?? 'Unknown error');
   }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

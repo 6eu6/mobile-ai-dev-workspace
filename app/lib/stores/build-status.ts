@@ -52,6 +52,21 @@ const initial: BuildStatusState = {
 export const buildStatusStore = atom<BuildStatusState>(initial);
 
 /**
+ * Phase 2: Preview files from the external worker (R2).
+ * When the worker completes a job, the frontend fetches files via /api/files
+ * and populates this store. The Preview component reads it to build a blob URL.
+ */
+export const previewFilesStore = atom<Record<string, string>>({});
+
+export function setPreviewFiles(files: Record<string, string>): void {
+  previewFilesStore.set(files);
+}
+
+export function resetPreviewFiles(): void {
+  previewFilesStore.set({});
+}
+
+/**
  * Update the store from a validation annotation value.
  * Called by Chat.client.tsx when it sees a `type: 'validation'` annotation.
  */

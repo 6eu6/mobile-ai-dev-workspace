@@ -7,7 +7,7 @@ import { PortDropdown } from './PortDropdown';
 import { ScreenshotSelector } from './ScreenshotSelector';
 import { expoUrlAtom } from '~/lib/stores/qrCodeStore';
 import { ExpoQrModal } from '~/components/workbench/ExpoQrModal';
-import { canShowPreview, buildStatusMessage, buildStatusStore } from '~/lib/stores/build-status';
+import { canShowPreview, buildStatusMessage, buildStatusStore, previewFilesStore } from '~/lib/stores/build-status';
 import type { ElementInfo } from './Inspector';
 
 type ResizeSide = 'left' | 'right' | null;
@@ -82,6 +82,53 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
 
   // Effective preview: only render if (a) a preview exists AND (b) the gate is open.
   const effectiveActivePreview = canShowPreviewValue ? activePreview : undefined;
+
+  // Phase 2: External Worker preview from R2.
+  // When the worker completes a job, previewFilesStore has {path: content}.
+  // We build a blob URL (rewriting relative links) and use it as the iframe src.
+  const previewFiles = useStore(previewFilesStore);
+  const [extWorkerBlobUrl, setExtWorkerBlobUrl] = useState<string | undefined>();
+
+  useEffect(() => {
+    const html = previewFiles['index.html'];
+
+    if (!html) {
+      setExtWorkerBlobUrl(undefined);
+      return;
+    }
+
+    // Create blob URLs for CSS and JS.
+    const blobUrls: string[] = [];
+    const urlMap: Record<string, string> = {};
+
+    for (const [path, content] of Object.entries(previewFiles)) {
+      if (path === 'index.html') continue;
+      const mime = path.endsWith('.css') ? 'text/css' : path.endsWith('.js') ? 'text/javascript' : 'text/plain';
+      const blob = new Blob([content], { type: mime });
+      const url = URL.createObjectURL(blob);
+      blobUrls.push(url);
+      urlMap[path.split('/').pop() ?? path] = url;
+    }
+
+    // Rewrite href/src in HTML.
+    let rewritten = html;
+    for (const [fileName, url] of Object.entries(urlMap)) {
+      rewritten = rewritten.replace(new RegExp(`(href|src)=["']${fileName}["']`, 'g'), `$1="${url}"`);
+    }
+
+    const htmlBlob = new Blob([rewritten], { type: 'text/html' });
+    const blobUrl = URL.createObjectURL(htmlBlob);
+    setExtWorkerBlobUrl(blobUrl);
+
+    return () => {
+      URL.revokeObjectURL(blobUrl);
+      blobUrls.forEach((u) => URL.revokeObjectURL(u));
+    };
+  }, [previewFiles]);
+
+  // If external worker preview is available, use it as the effective iframe URL.
+  const finalIframeUrl = extWorkerBlobUrl ?? iframeUrl;
+  const hasExtWorkerPreview = Boolean(extWorkerBlobUrl);
   const [displayPath, setDisplayPath] = useState('/');
   const [iframeUrl, setIframeUrl] = useState<string | undefined>();
   const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -934,7 +981,7 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
             alignItems: 'center',
           }}
         >
-          {effectiveActivePreview ? (
+          {effectiveActivePreview || hasExtWorkerPreview ? (
             <>
               {isDeviceModeOn && showDeviceFrameInPreview ? (
                 <div
@@ -1012,7 +1059,7 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
                         background: 'white',
                         display: 'block',
                       }}
-                      src={iframeUrl}
+                      src={finalIframeUrl}
                       sandbox="allow-scripts allow-forms allow-popups allow-modals allow-storage-access-by-user-activation allow-same-origin"
                       allow="cross-origin-isolated"
                     />
@@ -1023,7 +1070,7 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
                   ref={iframeRef}
                   title="preview"
                   className="border-none w-full h-full bg-palmkit-elements-background-depth-1"
-                  src={iframeUrl}
+                  src={finalIframeUrl}
                   sandbox="allow-scripts allow-forms allow-popups allow-modals allow-storage-access-by-user-activation allow-same-origin"
                   allow="geolocation; ch-ua-full-version-list; cross-origin-isolated; screen-wake-lock; publickey-credentials-get; shared-storage-select-url; ch-ua-arch; bluetooth; compute-pressure; ch-prefers-reduced-transparency; deferred-fetch; usb; ch-save-data; publickey-credentials-create; shared-storage; deferred-fetch-minimal; run-ad-auction; ch-ua-form-factors; ch-downlink; otp-credentials; payment; ch-ua; ch-ua-model; ch-ect; autoplay; camera; private-state-token-issuance; accelerometer; ch-ua-platform-version; idle-detection; private-aggregation; interest-cohort; ch-viewport-height; local-fonts; ch-ua-platform; midi; ch-ua-full-version; xr-spatial-tracking; clipboard-read; gamepad; display-capture; keyboard-map; join-ad-interest-group; ch-width; ch-prefers-reduced-motion; browsing-topics; encrypted-media; gyroscope; serial; ch-rtt; ch-ua-mobile; window-management; unload; ch-dpr; ch-prefers-color-scheme; ch-ua-wow64; attribution-reporting; fullscreen; identity-credentials-get; private-state-token-redemption; hid; ch-ua-bitness; storage-access; sync-xhr; ch-device-memory; ch-viewport-width; picture-in-picture; magnetometer; clipboard-write; microphone"
                 />

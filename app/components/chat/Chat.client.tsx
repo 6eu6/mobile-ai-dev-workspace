@@ -10,6 +10,7 @@ import { chatStore } from '~/lib/stores/chat';
 import { workbenchStore } from '~/lib/stores/workbench';
 import { setBuildStatus, resetBuildStatus } from '~/lib/stores/build-status';
 import type { BuildCompleteness, BuildJobStatus } from '~/lib/stores/build-status';
+import { useExternalWorker, useExternalWorkerFlag } from '~/lib/hooks/use-external-worker';
 import { DEFAULT_MODEL, DEFAULT_PROVIDER, PROMPT_COOKIE_KEY, PROVIDER_LIST } from '~/utils/constants';
 import { cubicEasingFn } from '~/utils/easings';
 import { createScopedLogger, renderLogger } from '~/utils/logger';
@@ -286,6 +287,35 @@ export const ChatImpl = memo(
     }, [isLoading, fakeLoading, files]);
 
     const { enhancingPrompt, promptEnhanced, enhancePrompt, resetEnhancer } = usePromptEnhancer();
+
+    // Phase 2: External Worker feature flag + hook.
+    const externalWorkerEnabled = useExternalWorkerFlag();
+    const { state: extWorkerState, startJob: startExtJob } = useExternalWorker();
+
+    // Sync external worker status → build-status store (for Preview gate).
+    useEffect(() => {
+      if (!externalWorkerEnabled || extWorkerState.status === 'idle') return;
+
+      const statusMap: Record<string, BuildJobStatus> = {
+        pending: 'generating',
+        generating: 'generating',
+        validating: 'incomplete_retrying',
+        uploading_snapshot: 'incomplete_retrying',
+        ready_for_preview: 'ready_for_preview',
+        failed_clean: 'failed_clean',
+      };
+
+      setBuildStatus({
+        completeness: extWorkerState.status === 'ready_for_preview' ? 'complete' : 'incomplete',
+        jobStatus: statusMap[extWorkerState.status] ?? 'generating',
+        hasCompletionMarker: extWorkerState.status === 'ready_for_preview',
+        artifactTagsBalanced: extWorkerState.status === 'ready_for_preview',
+        fileActionsBalanced: extWorkerState.status === 'ready_for_preview',
+        fileCount: extWorkerState.files.length,
+        issues: extWorkerState.error ? [{ code: 'WORKER_ERROR', message: extWorkerState.error, severity: 'error' }] : [],
+        retryCount: 0,
+      });
+    }, [externalWorkerEnabled, extWorkerState]);
     const { parsedMessages, parseMessages } = useMessageParser();
 
     const TEXTAREA_MAX_HEIGHT = chatStarted ? 400 : 200;
@@ -621,6 +651,24 @@ export const ChatImpl = memo(
 
       // Phase 1 Safety Gate: reset build status at the start of each new build.
       resetBuildStatus();
+
+      /*
+       * Phase 2: External Worker path (experimental, feature-flagged).
+       * If the flag is on, we bypass the legacy /api/chat streaming flow
+       * and instead enqueue a job via /api/jobs. The worker picks it up,
+       * generates files, uploads to R2, and we poll for status.
+       * Preview renders from R2 files when status=ready_for_preview.
+       *
+       * Toggle via: localStorage.setItem('palmkit_use_external_worker', 'true')
+       */
+      if (externalWorkerEnabled) {
+        chatStore.setKey('started', true);
+        chatStore.setKey('aborted', false);
+        setInput('');
+        Cookies.remove(PROMPT_COOKIE_KEY);
+        await startExtJob(finalMessageContent, model, provider.name);
+        return;
+      }
 
       if (!chatStarted) {
         setFakeLoading(true);
