@@ -126,9 +126,6 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
     };
   }, [previewFiles]);
 
-  // If external worker preview is available, use it as the effective iframe URL.
-  const finalIframeUrl = extWorkerBlobUrl ?? iframeUrl;
-  const hasExtWorkerPreview = Boolean(extWorkerBlobUrl);
   const [displayPath, setDisplayPath] = useState('/');
   const [iframeUrl, setIframeUrl] = useState<string | undefined>();
   const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -136,6 +133,11 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
   const [isDeviceModeOn, setIsDeviceModeOn] = useState(false);
   const [widthPercent, setWidthPercent] = useState<number>(37.5);
   const [currentWidth, setCurrentWidth] = useState<number>(0);
+
+  // If external worker preview is available, use it as the effective iframe URL.
+  // (Declared AFTER iframeUrl to avoid temporal dead zone.)
+  const finalIframeUrl = extWorkerBlobUrl ?? iframeUrl;
+  const hasExtWorkerPreview = Boolean(extWorkerBlobUrl);
 
   const resizingState = useRef({
     isResizing: false,
