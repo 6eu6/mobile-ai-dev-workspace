@@ -165,18 +165,22 @@ export async function loader(args: LoaderFunctionArgs) {
     return json({ error: 'Job not found' }, { status: 404 });
   }
 
-  // Fetch the file manifest for the project (if projectId exists).
-  let files: Array<{ path: string; size_bytes: number; integrity: string }> = [];
+  // Fetch the file manifest for the job (by job_id, not project_id — job-first flow).
+  const { data: manifest } = await authed.supabase
+    .from('project_files_manifest')
+    .select('path, size_bytes, integrity, mime_type')
+    .eq('job_id', jobId)
+    .order('path');
 
-  if (job.project_id) {
-    const { data: manifest } = await authed.supabase
-      .from('project_files_manifest')
-      .select('path, size_bytes, integrity')
-      .eq('project_id', job.project_id)
-      .order('path');
+  const files: Array<{ path: string; size_bytes: number; integrity: string; mime_type: string }> = manifest ?? [];
 
-    files = manifest ?? [];
-  }
+  // Fetch recent job_events (for frontend progress display).
+  const { data: events } = await authed.supabase
+    .from('job_events')
+    .select('type, seq, message, payload, created_at')
+    .eq('job_id', jobId)
+    .order('seq', { ascending: true })
+    .limit(50);
 
   return json({
     jobId: job.id,
@@ -188,6 +192,7 @@ export async function loader(args: LoaderFunctionArgs) {
     hasCompletionMarker: job.has_completion_marker,
     fileCount: files.length,
     files,
+    events: events ?? [],
     updatedAt: job.updated_at,
   });
 }

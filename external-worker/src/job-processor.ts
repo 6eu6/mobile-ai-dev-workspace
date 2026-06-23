@@ -21,6 +21,7 @@ import { logger } from './logger';
 import { planProject, generateStaticFiles, validateGeneration, type GenerationResult } from './generator';
 import { putFile, buildKey } from './r2-client';
 import { getUserApiKey } from './key-fetcher';
+import { emitEvent, emitFileWritten } from './event-emitter';
 import { createHash } from 'crypto';
 
 interface BuildJob {
@@ -143,6 +144,7 @@ export async function processNextJob(supabase: SupabaseClient): Promise<void> {
   try {
     // ─── Phase 0: FETCH + DECRYPT USER'S API KEY ──────────────────────
     await updateJobProgress(supabase, job.id, 5, 'fetch_api_key');
+    await emitEvent(supabase, job.id, 'job_created', 'Job started', { prompt: prompt.slice(0, 100), provider: providerName, model: modelName });
 
     const apiKey = await getUserApiKey(supabase, job.user_id, providerName);
 
@@ -155,6 +157,7 @@ export async function processNextJob(supabase: SupabaseClient): Promise<void> {
 
     // ─── Phase 1: PLAN ─────────────────────────────────────────────────
     await updateJobProgress(supabase, job.id, 10, 'plan');
+    await emitEvent(supabase, job.id, 'planning_started', 'Planning app structure...');
     await recordStep(supabase, job.id, { type: 'plan', status: 'running', order: 1, inputSummary: prompt.slice(0, 100) });
 
     const spec = planProject(prompt);
@@ -165,11 +168,13 @@ export async function processNextJob(supabase: SupabaseClient): Promise<void> {
       order: 1,
       outputSummary: `spec: ${spec.appType}, ${spec.files.length} files`,
     });
+    await emitEvent(supabase, job.id, 'planning_completed', `Planned ${spec.files.length} files (${spec.appType})`, { fileCount: spec.files.length, appType: spec.appType });
 
     logger.info(`Job ${job.id}: plan complete → ${spec.appType}, ${spec.files.length} files`);
 
     // ─── Phase 2: GENERATE ─────────────────────────────────────────────
     await updateJobProgress(supabase, job.id, 30, 'generate_files');
+    await emitEvent(supabase, job.id, 'file_generation_started', `Generating files with ${providerName}...`);
     await recordStep(supabase, job.id, { type: 'generate_file', status: 'running', order: 2 });
 
     let result: GenerationResult;
@@ -183,9 +188,12 @@ export async function processNextJob(supabase: SupabaseClient): Promise<void> {
         order: 2,
         error: genError.message,
       });
+      await emitEvent(supabase, job.id, 'job_failed', `Generation failed: ${genError.message}`, { error: genError.message });
       await failJob(supabase, job.id, `Generation failed (${providerName}/${modelName}): ${genError.message}`);
       return;
     }
+
+    await emitEvent(supabase, job.id, 'file_generation_completed', `Generated ${result.files.length} files`);
 
     await recordStep(supabase, job.id, {
       type: 'generate_file',
@@ -198,6 +206,7 @@ export async function processNextJob(supabase: SupabaseClient): Promise<void> {
 
     // ─── Phase 3: VALIDATE ─────────────────────────────────────────────
     await updateJobProgress(supabase, job.id, 50, 'validate');
+    await emitEvent(supabase, job.id, 'validation_started', 'Validating output...');
     await recordStep(supabase, job.id, { type: 'validate', status: 'running', order: 3 });
 
     const issues = validateGeneration(result);
@@ -209,6 +218,7 @@ export async function processNextJob(supabase: SupabaseClient): Promise<void> {
         order: 3,
         error: issues.join('; '),
       });
+      await emitEvent(supabase, job.id, 'validation_failed', `Validation failed: ${issues[0]}`, { issues });
       await failJob(supabase, job.id, `Validation failed: ${issues.join('; ')}`);
       return;
     }
@@ -219,11 +229,13 @@ export async function processNextJob(supabase: SupabaseClient): Promise<void> {
       order: 3,
       outputSummary: 'all checks passed',
     });
+    await emitEvent(supabase, job.id, 'validation_passed', 'Validation passed');
 
     logger.info(`Job ${job.id}: validation passed`);
 
     // ─── Phase 4: UPLOAD TO R2 ─────────────────────────────────────────
     await updateJobProgress(supabase, job.id, 70, 'uploading_snapshot');
+    await emitEvent(supabase, job.id, 'upload_started', 'Uploading files to R2...');
     await recordStep(supabase, job.id, { type: 'finalize', status: 'running', order: 4 });
 
     const projectId = job.project_id ?? job.id; // use jobId as projectId if no project yet
@@ -234,6 +246,7 @@ export async function processNextJob(supabase: SupabaseClient): Promise<void> {
       const content = file.content;
       const hash = createHash('sha256').update(content).digest('hex');
       const sizeBytes = new TextEncoder().encode(content).length;
+      const lineCount = content.split('\n').length;
 
       // Upload to R2 (primary storage).
       try {
@@ -246,13 +259,15 @@ export async function processNextJob(supabase: SupabaseClient): Promise<void> {
           order: 4,
           error: `R2 upload failed for ${file.path}: ${uploadError.message}`,
         });
+        await emitEvent(supabase, job.id, 'job_failed', `Upload failed for ${file.path}: ${uploadError.message}`);
         await failJob(supabase, job.id, `R2 upload failed for ${file.path}: ${uploadError.message}`);
         return;
       }
 
+      // Emit file_written event (frontend shows "Created index.html (284 lines)")
+      await emitFileWritten(supabase, job.id, file.path, lineCount, sizeBytes);
+
       // Mirror to Supabase Storage (read-through cache for the browser).
-      // The browser can't access R2 directly (no CORS, no creds). CF Pages
-      // /api/files reads from here. R2 remains the canonical primary copy.
       const sbKey = `${job.user_id}/${r2Key}`;
 
       try {
@@ -330,8 +345,12 @@ export async function processNextJob(supabase: SupabaseClient): Promise<void> {
       throw new Error(`Failed to finalize job: ${finalizeError.message}`);
     }
 
+    await emitEvent(supabase, job.id, 'snapshot_uploaded', `Snapshot uploaded (${manifestEntries.length} files)`, { fileCount: manifestEntries.length });
+    await emitEvent(supabase, job.id, 'ready_for_preview', 'Preview ready');
+
     logger.info(`Job ${job.id} → ready_for_preview ✅`);
   } catch (err: any) {
+    await emitEvent(supabase, job.id, 'job_failed', `Job failed: ${err.message}`, { error: err.message });
     await failJob(supabase, job.id, err.message ?? 'Unknown error');
   }
 }

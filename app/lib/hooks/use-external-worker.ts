@@ -18,14 +18,23 @@ import { setPreviewFiles, resetPreviewFiles } from '~/lib/stores/build-status';
 const FLAG_KEY = 'palmkit_use_external_worker';
 const POLL_INTERVAL_MS = 1500;
 
+export interface JobEvent {
+  type: string;
+  seq: number;
+  message: string;
+  payload?: Record<string, unknown>;
+  created_at: string;
+}
+
 export interface ExternalWorkerState {
   jobId: string | null;
   status: 'idle' | 'pending' | 'generating' | 'validating' | 'uploading_snapshot' | 'ready_for_preview' | 'failed_clean';
   progress: number;
   currentStep: string;
   error: string | null;
-  files: Array<{ path: string; size_bytes: number; integrity: string }>;
-  previewFiles: Record<string, string>; // path → content, for rendering
+  files: Array<{ path: string; size_bytes: number; integrity: string; mime_type: string }>;
+  previewFiles: Record<string, string>;
+  events: JobEvent[];
 }
 
 const initialState: ExternalWorkerState = {
@@ -36,6 +45,7 @@ const initialState: ExternalWorkerState = {
   error: null,
   files: [],
   previewFiles: {},
+  events: [],
 };
 
 export function getExternalWorkerFlag(): boolean {
@@ -126,6 +136,7 @@ export function useExternalWorker() {
           currentStep: data.currentStep ?? '',
           error: data.errorSummary ?? null,
           files: data.files ?? [],
+          events: data.events ?? [],
         }));
 
         // Terminal states: stop polling.
