@@ -97,7 +97,15 @@ User prompt
 
 ## 3. خطة التنفيذ المرحلية
 
-### Phase 1 — Safety Gate (الحماية الفورية) 🚧 قيد التنفيذ
+### Phase 1 — Safety Gate (الحماية الفورية) ✅ مكتمل ومُختبر
+
+**النتائج الفعلية على palmkit.app** (3 سيناريوهات):
+
+| السيناريو | النتيجة | الحالة |
+|-----------|---------|--------|
+| Coffee shop (متوسط) | "Build incomplete — stream was interrupted" | ✅ رسالة واضحة، لا preview مكسور |
+| Ecommerce معقد (قطع إجباري) | "Build incomplete" + "No preview available" | ✅ فشل نظيف بدون preview |
+| Hello world بسيط (نجاح) | "Build complete — ready for preview" + preview أحمر | ✅ نجح بعد auto-retry (AI نسي الماركر أول مرة) |
 
 **الهدف**: منع preview المكسور يظهر للمستخدم أبداً. **ليس** حل التوليد الطويل — هذا Phase 2.
 
