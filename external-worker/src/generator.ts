@@ -1,14 +1,13 @@
 /**
  * Generator — Phase 2 LLM generation using Vercel AI SDK
  *
- * Uses the provider registry (provider-registry.ts) so the worker can call
- * ANY of the 22 providers Palmkit supports — NOT just OpenRouter.
+ * Supports three app types classified from the user prompt:
+ *   static  → HTML + CSS + JS (iframe preview, no sandbox)
+ *   react   → React + Vite (WebContainer / E2B preview)
+ *   python  → Python (E2B preview)
  *
- * The user's decrypted API key is passed in (fetched by key-fetcher.ts from
- * the encrypted user_api_keys table). The worker NEVER reads provider keys
- * from its own env vars — keys come from the user's account.
- *
- * Output: file-operations JSON (same format as before).
+ * Each type uses a different file plan and system prompt so the LLM
+ * generates the correct structure without guessing.
  */
 
 import { generateText } from 'ai';
@@ -26,6 +25,7 @@ export interface GenerationResult {
   files: FileOperation[];
   complete: boolean;
   rawText: string;
+  appType: ProjectSpec['appType'];
 }
 
 export interface ProjectSpec {
@@ -36,31 +36,61 @@ export interface ProjectSpec {
 }
 
 /**
- * Phase 1: Plan the project from the user prompt.
+ * Classify the prompt and build a file plan.
+ * Previously had a bug where both branches returned 'static'.
  */
 export function planProject(prompt: string): ProjectSpec {
   const lower = prompt.toLowerCase();
-  const isStatic =
-    /html|css|js|javascript|vanilla|static|landing page|no framework|simple/i.test(lower) ||
-    !/react|vue|vite|next|svelte|angular|express|flask|python/i.test(lower);
+
+  const isPython = /python|flask|fastapi|django|pip\s/i.test(lower);
+  const isReact = /react|vite|next\.?js|tsx|jsx|shadcn|tailwind.*component|hooks?|useState|useEffect/i.test(lower);
+  const isExplicitlyStatic =
+    /html|css|vanilla|static|landing page|no framework|no react|without react/i.test(lower);
+
+  let appType: ProjectSpec['appType'];
+
+  if (isPython && !isReact) {
+    appType = 'python';
+  } else if (isReact && !isExplicitlyStatic) {
+    appType = 'react';
+  } else {
+    appType = 'static';
+  }
+
+  const filePlans: Record<ProjectSpec['appType'], Array<{ path: string; purpose: string }>> = {
+    static: [
+      { path: 'index.html', purpose: 'Main HTML structure with semantic tags and all sections' },
+      { path: 'styles.css', purpose: 'Complete CSS for all elements, responsive mobile-first' },
+      { path: 'app.js', purpose: 'JavaScript for all interactivity, animations, and logic' },
+    ],
+    react: [
+      { path: 'package.json', purpose: 'Vite + React dependencies' },
+      { path: 'index.html', purpose: 'Vite entry HTML' },
+      { path: 'vite.config.js', purpose: 'Vite configuration' },
+      { path: 'src/main.jsx', purpose: 'React entry point' },
+      { path: 'src/App.jsx', purpose: 'Root App component' },
+      { path: 'src/index.css', purpose: 'Global styles' },
+    ],
+    python: [
+      { path: 'app.py', purpose: 'Flask/FastAPI application with all routes' },
+      { path: 'requirements.txt', purpose: 'Python dependencies' },
+      { path: 'templates/index.html', purpose: 'Jinja2 template (if Flask)' },
+    ],
+  };
 
   return {
-    appType: isStatic ? 'static' : 'static',
-    description: prompt.slice(0, 200),
-    files: [
-      { path: 'index.html', purpose: 'Main HTML structure with semantic tags' },
-      { path: 'styles.css', purpose: 'Complete CSS styling for all elements' },
-      { path: 'app.js', purpose: 'JavaScript for interactivity and animations' },
-    ],
-    designNotes: 'Beautiful, responsive, mobile-first design with modern aesthetics.',
+    appType,
+    description: prompt.slice(0, 300),
+    files: filePlans[appType],
+    designNotes: 'Beautiful, responsive, mobile-first design. Modern aesthetics, production quality.',
   };
 }
 
 function buildSystemPrompt(spec: ProjectSpec): string {
-  return `You are Palmkit's build worker. Generate a COMPLETE static web project.
+  if (spec.appType === 'static') {
+    return `You are Palmkit's build worker. Generate a COMPLETE static web project.
 
 OUTPUT FORMAT (STRICT JSON):
-Return a single JSON object with this exact shape:
 {
   "files": [
     { "op": "write_file", "path": "index.html", "content": "...full HTML...", "mime_type": "text/html" },
@@ -71,36 +101,74 @@ Return a single JSON object with this exact shape:
 }
 
 RULES:
-1. Generate ALL THREE files: index.html, styles.css, app.js — no exceptions.
-2. index.html MUST link to styles.css and app.js:
-   <link rel="stylesheet" href="styles.css">
-   <script src="app.js"></script>
-3. Write COMPLETE file content — no placeholders, no TODO, no "...".
-4. Every CSS file must fully style ALL elements in the HTML.
-5. Every JS file must have complete, working logic.
-6. The JSON must be valid and parseable — escape quotes and newlines properly.
-7. Set "complete": true only when all 3 files are fully written.
-8. Do NOT wrap the JSON in markdown code fences. Return raw JSON only.
+1. Generate ALL THREE files. No exceptions.
+2. index.html MUST have: <link rel="stylesheet" href="styles.css"> and <script src="app.js"></script>
+3. Write COMPLETE content — no placeholders, no TODO, no "...".
+4. Valid JSON — escape quotes and newlines properly.
+5. "complete": true only when all files are fully written.
+6. Return raw JSON only. No markdown fences.
 
-PROJECT SPEC:
-- Description: ${spec.description}
-- Files: ${spec.files.map((f) => `${f.path} (${f.purpose})`).join(', ')}
-- Design: ${spec.designNotes}
+PROJECT: ${spec.description}
+DESIGN: ${spec.designNotes}
 
-QUALITY:
-- Mobile-first responsive (test at 390px width).
-- Modern design: CSS variables, gradients, shadows, smooth transitions.
-- Semantic HTML5, accessible.
-- Production quality, not a tutorial example.
+Mobile-first (390px), CSS variables, gradients, smooth transitions, semantic HTML5, accessible.
+Return ONLY the JSON object.`;
+  }
 
-Return ONLY the JSON object. No prose before or after.`;
+  if (spec.appType === 'react') {
+    return `You are Palmkit's build worker. Generate a COMPLETE React + Vite project.
+
+OUTPUT FORMAT (STRICT JSON):
+{
+  "files": [
+    { "op": "write_file", "path": "package.json", "content": "...", "mime_type": "application/json" },
+    { "op": "write_file", "path": "index.html", "content": "...", "mime_type": "text/html" },
+    { "op": "write_file", "path": "vite.config.js", "content": "...", "mime_type": "text/javascript" },
+    { "op": "write_file", "path": "src/main.jsx", "content": "...", "mime_type": "text/javascript" },
+    { "op": "write_file", "path": "src/App.jsx", "content": "...", "mime_type": "text/javascript" },
+    { "op": "write_file", "path": "src/index.css", "content": "...", "mime_type": "text/css" }
+  ],
+  "complete": true
+}
+
+RULES:
+1. package.json must use Vite + React. devDependencies: vite, @vitejs/plugin-react. dependencies: react, react-dom.
+2. vite.config.js: import { defineConfig } from 'vite'; import react from '@vitejs/plugin-react';
+3. src/main.jsx: import React, ReactDOM. Mount to #root.
+4. Write COMPLETE content — no placeholders, no TODO.
+5. Return raw JSON only. No markdown fences.
+
+PROJECT: ${spec.description}
+DESIGN: ${spec.designNotes}
+
+Mobile-first, modern design, component-based architecture.
+Return ONLY the JSON object.`;
+  }
+
+  // python
+  return `You are Palmkit's build worker. Generate a COMPLETE Python Flask application.
+
+OUTPUT FORMAT (STRICT JSON):
+{
+  "files": [
+    { "op": "write_file", "path": "app.py", "content": "...", "mime_type": "text/x-python" },
+    { "op": "write_file", "path": "requirements.txt", "content": "...", "mime_type": "text/plain" }
+  ],
+  "complete": true
+}
+
+RULES:
+1. app.py: Complete Flask application with all routes, templates, logic.
+2. requirements.txt: All dependencies, one per line.
+3. Write COMPLETE content — no placeholders, no TODO.
+4. Return raw JSON only. No markdown fences.
+
+PROJECT: ${spec.description}
+Return ONLY the JSON object.`;
 }
 
 /**
- * Phase 2: Generate all static files in ONE LLM call.
- *
- * Uses the Vercel AI SDK with whatever provider the user has configured.
- * The apiKey is the user's DECRYPTED key from user_api_keys.
+ * Generate project files using the LLM.
  */
 export async function generateStaticFiles(
   prompt: string,
@@ -109,7 +177,7 @@ export async function generateStaticFiles(
   modelName: string,
   apiKey: string,
 ): Promise<GenerationResult> {
-  logger.info(`Generating with provider=${providerName}, model=${modelName}`);
+  logger.info(`Generating ${spec.appType} with provider=${providerName}, model=${modelName}`);
 
   const systemPrompt = buildSystemPrompt(spec);
   const model = getModelInstance(providerName, modelName, apiKey);
@@ -118,7 +186,6 @@ export async function generateStaticFiles(
     model,
     system: systemPrompt,
     prompt,
-    // Large enough for 3 complete files, small enough to stay fast.
     maxTokens: 16000,
     temperature: 0.7,
   });
@@ -131,13 +198,11 @@ export async function generateStaticFiles(
 
   logger.info(`Received ${rawText.length} chars from ${providerName} (usage: ${JSON.stringify(result.usage)})`);
 
-  // Parse the JSON response.
   let parsed: { files?: FileOperation[]; complete?: boolean };
 
   try {
     parsed = JSON.parse(rawText);
   } catch (parseError: any) {
-    // Try to extract JSON from a fenced code block (LLM may have ignored instructions).
     const jsonMatch = rawText.match(/\{[\s\S]*\}/);
 
     if (!jsonMatch) {
@@ -156,10 +221,9 @@ export async function generateStaticFiles(
     throw new Error('LLM returned no files in the JSON response');
   }
 
-  // Validate each file has content.
   for (const f of files) {
     if (!f.path || typeof f.content !== 'string') {
-      throw new Error(`Invalid file operation: missing path or content`);
+      throw new Error('Invalid file operation: missing path or content');
     }
 
     if (f.content.trim().length === 0) {
@@ -171,22 +235,25 @@ export async function generateStaticFiles(
     }
   }
 
-  logger.info(`Generation complete: ${files.length} files, complete=${complete}`);
+  logger.info(`Generation complete: ${files.length} files, appType=${spec.appType}, complete=${complete}`);
 
-  return { files, complete, rawText };
+  return { files, complete, rawText, appType: spec.appType };
 }
 
 function inferMimeType(path: string): string {
   if (path.endsWith('.html')) return 'text/html';
   if (path.endsWith('.css')) return 'text/css';
-  if (path.endsWith('.js')) return 'text/javascript';
+  if (path.endsWith('.js') || path.endsWith('.jsx')) return 'text/javascript';
+  if (path.endsWith('.ts') || path.endsWith('.tsx')) return 'text/typescript';
   if (path.endsWith('.json')) return 'application/json';
   if (path.endsWith('.svg')) return 'image/svg+xml';
+  if (path.endsWith('.py')) return 'text/x-python';
+  if (path.endsWith('.txt')) return 'text/plain';
   return 'text/plain';
 }
 
 /**
- * Validate the generation result.
+ * Validate the generation result based on the app type.
  */
 export function validateGeneration(result: GenerationResult): string[] {
   const issues: string[] = [];
@@ -195,20 +262,28 @@ export function validateGeneration(result: GenerationResult): string[] {
     issues.push('Generation did not set complete=true');
   }
 
-  if (result.files.length < 3) {
-    issues.push(`Expected 3 files (index.html, styles.css, app.js), got ${result.files.length}`);
-  }
-
   const paths = result.files.map((f) => f.path);
 
-  if (!paths.includes('index.html')) issues.push('Missing index.html');
-  if (!paths.includes('styles.css')) issues.push('Missing styles.css');
-  if (!paths.includes('app.js')) issues.push('Missing app.js');
+  if (result.appType === 'static') {
+    if (!paths.includes('index.html')) issues.push('Missing index.html');
+    if (!paths.includes('styles.css')) issues.push('Missing styles.css');
+    if (!paths.includes('app.js')) issues.push('Missing app.js');
 
-  const html = result.files.find((f) => f.path === 'index.html')?.content ?? '';
-
-  if (html && !html.includes('styles.css')) issues.push('index.html does not link to styles.css');
-  if (html && !html.includes('app.js')) issues.push('index.html does not reference app.js');
+    const html = result.files.find((f) => f.path === 'index.html')?.content ?? '';
+    if (html && !html.includes('styles.css')) issues.push('index.html does not link to styles.css');
+    if (html && !html.includes('app.js')) issues.push('index.html does not reference app.js');
+  } else if (result.appType === 'react') {
+    if (!paths.includes('package.json')) issues.push('Missing package.json');
+    if (!paths.some((p) => p.endsWith('App.jsx') || p.endsWith('App.tsx'))) {
+      issues.push('Missing App component');
+    }
+    if (!paths.some((p) => p.endsWith('main.jsx') || p.endsWith('main.tsx'))) {
+      issues.push('Missing main entry point');
+    }
+  } else if (result.appType === 'python') {
+    if (!paths.some((p) => p.endsWith('.py'))) issues.push('Missing Python file');
+    if (!paths.includes('requirements.txt')) issues.push('Missing requirements.txt');
+  }
 
   for (const f of result.files) {
     if (/\/\/\s*TODO|\/\/\s*FIXME|<!--\s*add.*here\s*-->|<!--\s*COMPLETE/i.test(f.content)) {

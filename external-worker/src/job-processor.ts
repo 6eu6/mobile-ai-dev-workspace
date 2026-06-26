@@ -19,6 +19,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { logger } from './logger';
 import { planProject, generateStaticFiles, validateGeneration, type GenerationResult } from './generator';
+import { createRunner } from './build-runner';
 import { putFile, buildKey } from './r2-client';
 import { getUserApiKey } from './key-fetcher';
 import { emitEvent, emitFileWritten } from './event-emitter';
@@ -193,16 +194,19 @@ export async function processNextJob(supabase: SupabaseClient): Promise<void> {
       return;
     }
 
-    await emitEvent(supabase, job.id, 'file_generation_completed', `Generated ${result.files.length} files`);
+    await emitEvent(supabase, job.id, 'file_generation_completed', `Generated ${result.files.length} files (${result.appType})`);
 
     await recordStep(supabase, job.id, {
       type: 'generate_file',
       status: 'completed',
       order: 2,
-      outputSummary: `${result.files.length} files, ${result.rawText.length} chars`,
+      outputSummary: `${result.files.length} files (${result.appType}), ${result.rawText.length} chars`,
     });
 
-    logger.info(`Job ${job.id}: generation complete → ${result.files.length} files`);
+    logger.info(`Job ${job.id}: generation complete → ${result.files.length} files (${result.appType})`);
+
+    // Initialise the correct runner for this app type.
+    const runner = createRunner(result.appType);
 
     // ─── Phase 3: VALIDATE ─────────────────────────────────────────────
     await updateJobProgress(supabase, job.id, 50, 'validate');
@@ -336,6 +340,8 @@ export async function processNextJob(supabase: SupabaseClient): Promise<void> {
           ...job.validation_result,
           fileCount: result.files.length,
           completeness: 'complete',
+          appType: result.appType,
+          runtimeMode: runner.runtimeMode,
         },
         updated_at: new Date().toISOString(),
       })

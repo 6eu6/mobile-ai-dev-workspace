@@ -37,8 +37,12 @@ export interface JobEventPayload {
   [key: string]: unknown;
 }
 
+// In-process sequence counters per job — avoids a SELECT before every INSERT
+// and prevents seq collisions from concurrent async emits within the same job.
+const jobSeqCounters = new Map<string, number>();
+
 /**
- * Emit a job event. Auto-increments the sequence number per job.
+ * Emit a job event. Sequence number is tracked in-process per job.
  */
 export async function emitEvent(
   supabase: SupabaseClient,
@@ -47,16 +51,9 @@ export async function emitEvent(
   message: string,
   payload?: JobEventPayload,
 ): Promise<void> {
-  // Get the current max seq for this job (cheap with the index).
-  const { data: lastEvent } = await supabase
-    .from('job_events')
-    .select('seq')
-    .eq('job_id', jobId)
-    .order('seq', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  const seq = (lastEvent?.seq ?? -1) + 1;
+  const current = jobSeqCounters.get(jobId) ?? -1;
+  const seq = current + 1;
+  jobSeqCounters.set(jobId, seq);
 
   const { error } = await supabase.from('job_events').insert({
     job_id: jobId,

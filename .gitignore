@@ -59,3 +59,11 @@ docs/instructions/Roadmap.md
 # Never belong in the repository.
 tool-results/
 upload/
+
+# Claude skills (external Claude.ai skill packages — not part of Palmkit)
+skills/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
