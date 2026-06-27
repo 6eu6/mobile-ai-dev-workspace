@@ -47,11 +47,14 @@ async function claimNextJob(supabase: SupabaseClient): Promise<BuildJob | null> 
     return null;
   }
 
-  if (!data) {
+  // RPC may return null, [], or a single row object depending on Supabase version.
+  const job = Array.isArray(data) ? (data[0] ?? null) : data;
+
+  if (!job || !job.id) {
     return null;
   }
 
-  return data as BuildJob;
+  return job as BuildJob;
 }
 
 /**
