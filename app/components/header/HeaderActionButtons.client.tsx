@@ -23,7 +23,7 @@ export function HeaderActionButtons({ chatStarted: _chatStarted }: HeaderActionB
       {/* Phase 8: Export ZIP — shown when Oracle Worker build is ready */}
       {showExportZip && (
         <a
-          href={`/api/export?jobId=${currentJobId}`}
+          href={`/api/export-zip?jobId=${currentJobId}`}
           download
           className="flex items-center gap-1.5 rounded-lg border border-palmkit-elements-borderColor px-3 py-1.5 text-xs font-medium text-palmkit-elements-textSecondary hover:border-palmkit-elements-borderColorActive hover:text-palmkit-elements-textPrimary transition-colors"
           title="Download project as ZIP"

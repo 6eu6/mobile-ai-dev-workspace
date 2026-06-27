@@ -1,5 +1,5 @@
 /**
- * /api/export?jobId=<id> — Phase 8 ZIP Export
+ * /api/export-zip?jobId=<id> — Phase 8 ZIP Export
  *
  * Downloads all files for a completed build as a ZIP archive.
  * Uses fflate (already a project dependency) for in-memory ZIP creation.
