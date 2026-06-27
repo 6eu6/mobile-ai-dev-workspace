@@ -130,6 +130,7 @@ export async function action(args: ActionFunctionArgs) {
  *     jobId, status, currentStep, progress, retryCount,
  *     errorSummary, hasCompletionMarker, fileCount,
  *     files: [{ path, size, integrity }]  // from manifest
+ *     appType, runtimeMode  // from worker's validation_result
  *   }
  *   401 { error: 'Unauthorized' }
  *   404 { error: 'Job not found' }
@@ -178,6 +179,8 @@ export async function loader(args: LoaderFunctionArgs) {
     .order('seq', { ascending: true })
     .limit(50);
 
+  const vr = (job.validation_result ?? {}) as Record<string, unknown>;
+
   return json({
     jobId: job.id,
     status: job.status,
@@ -190,5 +193,8 @@ export async function loader(args: LoaderFunctionArgs) {
     files,
     events: events ?? [],
     updatedAt: job.updated_at,
+    validationResult: job.validation_result,
+    appType: (vr.appType as string) ?? null,
+    runtimeMode: (vr.runtimeMode as string) ?? null,
   });
 }
