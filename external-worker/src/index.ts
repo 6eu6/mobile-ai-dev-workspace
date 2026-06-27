@@ -41,6 +41,7 @@
 
 import { Hono } from 'hono';
 import { createServer } from 'http';
+import { execSync } from 'child_process';
 import { createClient } from '@supabase/supabase-js';
 import { processNextJob } from './job-processor';
 import { logger } from './logger';
@@ -87,6 +88,33 @@ app.get('/jobs/stats', async (c) => {
     .select('*', { count: 'exact', head: true })
     .eq('status', 'generating');
   return c.json({ pendingJobs: pending ?? 0 });
+});
+
+/*
+ * Admin: self-update endpoint. Requires the ADMIN_TOKEN env var.
+ * POST /admin/update  →  git pull + bun install → process.exit(0) (systemd restarts)
+ */
+app.post('/admin/update', async (c) => {
+  const adminToken = process.env.ADMIN_TOKEN;
+  if (!adminToken) return c.json({ error: 'ADMIN_TOKEN not configured' }, 403);
+
+  const auth = c.req.header('x-admin-token');
+  if (auth !== adminToken) return c.json({ error: 'Unauthorized' }, 401);
+
+  logger.info('[admin] Self-update triggered via HTTP');
+  try {
+    const gitOut = execSync('git -C /opt/palmkit-worker pull origin main 2>&1', { timeout: 60_000 }).toString();
+    logger.info('[admin] git pull:', gitOut.trim());
+    const bunOut = execSync('bun install --frozen-lockfile --cwd /opt/palmkit-worker 2>&1', { timeout: 120_000 }).toString();
+    logger.info('[admin] bun install done:', bunOut.slice(-200));
+    // Respond before exiting so the caller gets confirmation
+    c.executionCtx?.waitUntil?.(Promise.resolve());
+    setTimeout(() => { logger.info('[admin] Exiting for systemd restart'); process.exit(0); }, 500);
+    return c.json({ ok: true, git: gitOut.trim().slice(-300) });
+  } catch (err: any) {
+    logger.error('[admin] Self-update failed:', err.message);
+    return c.json({ error: err.message }, 500);
+  }
 });
 
 /*

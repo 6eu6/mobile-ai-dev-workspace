@@ -25,7 +25,12 @@ jobs:
           script: |
             set -e
             cd /opt/palmkit-worker
-            git pull origin main
+            git fetch origin
+            git checkout main 2>/dev/null || git checkout -b main origin/main
+            git reset --hard origin/main
+            cd /opt/palmkit-worker/external-worker
+            export BUN_INSTALL="$HOME/.bun"
+            export PATH="$BUN_INSTALL/bin:$PATH"
             bun install --frozen-lockfile
             sudo systemctl restart palmkit-worker
             echo "Worker updated and restarted ✅"
