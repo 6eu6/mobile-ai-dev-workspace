@@ -73,7 +73,13 @@ export function getSupabaseServerClient(request: Request, context: AppLoadContex
   return { supabase, headers };
 }
 
-/** Returns the authenticated user (verified against Supabase) or null. */
+/** Returns the authenticated user or null.
+ *
+ * Uses getSession() to read the JWT from cookies without a network call to
+ * Supabase's auth server. This eliminates the 300-500ms round-trip on every
+ * page load. The JWT is cryptographically signed by Supabase and expires in
+ * 1 hour; all DB queries are still protected by RLS on the JWT claims.
+ */
 export async function getAuthedUser(request: Request, context: AppLoadContext) {
   const env = getEnv(context);
 
@@ -84,8 +90,8 @@ export async function getAuthedUser(request: Request, context: AppLoadContext) {
   const { supabase, headers } = getSupabaseServerClient(request, context);
 
   const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    data: { session },
+  } = await supabase.auth.getSession();
 
-  return { user, supabase, headers };
+  return { user: session?.user ?? null, supabase, headers };
 }

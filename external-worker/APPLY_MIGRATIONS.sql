@@ -371,3 +371,45 @@ create unique index if not exists project_files_manifest_job_path_uniq
 create unique index if not exists project_files_manifest_project_path_uniq
   on public.project_files_manifest (project_id, path, version)
   where project_id is not null;
+-- Palmkit: job_events — fine-grained progress tracking (migration 0009)
+--
+-- build_steps is COARSE (one row per phase: plan/generate/validate/finalize).
+-- job_events is FINE (one row per notable event: file_written, validation_check,
+-- upload_started, etc.). The frontend reads these to show real-time progress.
+
+create table if not exists public.job_events (
+  id bigint primary key generated always as identity,
+  job_id uuid not null references public.build_jobs (id) on delete cascade,
+  type text not null,
+  seq integer not null default 0,
+  payload jsonb,
+  message text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists job_events_job_seq_idx on public.job_events (job_id, seq);
+create index if not exists job_events_job_created_idx on public.job_events (job_id, created_at);
+create index if not exists job_events_type_idx on public.job_events (type);
+
+alter table public.job_events enable row level security;
+
+drop policy if exists "job_events_select_own" on public.job_events;
+create policy "job_events_select_own" on public.job_events
+  for select using (
+    exists (
+      select 1 from public.build_jobs j
+      where j.id = job_events.job_id and j.user_id = auth.uid()
+    )
+  );
+
+drop policy if exists "job_events_delete_own" on public.job_events;
+create policy "job_events_delete_own" on public.job_events
+  for delete using (
+    exists (
+      select 1 from public.build_jobs j
+      where j.id = job_events.job_id and j.user_id = auth.uid()
+    )
+  );
+
+comment on table public.job_events is
+  'Fine-grained progress events for build jobs. Written by the external worker (service role), read by the frontend (RLS-scoped to own jobs).';
