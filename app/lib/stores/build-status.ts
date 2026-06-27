@@ -79,6 +79,25 @@ export function resetPreviewFiles(): void {
   previewFilesStore.set({});
 }
 
+/** Phase 5 — real-time worker progress events shown in the chat panel. */
+export interface WorkerEvent {
+  type: string;
+  seq: number;
+  message: string;
+  payload?: Record<string, unknown>;
+  created_at: string;
+}
+
+export const workerEventsStore = atom<WorkerEvent[]>([]);
+
+export function setWorkerEvents(events: WorkerEvent[]): void {
+  workerEventsStore.set(events);
+}
+
+export function clearWorkerEvents(): void {
+  workerEventsStore.set([]);
+}
+
 /**
  * Update the store from a validation annotation value.
  * Called by Chat.client.tsx when it sees a `type: 'validation'` annotation.

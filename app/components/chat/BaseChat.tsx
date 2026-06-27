@@ -24,6 +24,7 @@ import DeployChatAlert from '~/components/deploy/DeployAlert';
 import ChatAlert from './ChatAlert';
 import type { ModelInfo } from '~/lib/modules/llm/types';
 import ProgressCompilation from './ProgressCompilation';
+import { WorkerProgress } from './WorkerProgress';
 import type { ProgressAnnotation } from '~/types/context';
 import { SupabaseChatAlert } from '~/components/chat/SupabaseAlert';
 import { expoUrlAtom } from '~/lib/stores/qrCodeStore';
@@ -447,6 +448,7 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                   {llmErrorAlert && <LlmErrorAlert alert={llmErrorAlert} clearAlert={() => clearLlmErrorAlert?.()} />}
                 </div>
                 {progressAnnotations && <ProgressCompilation data={progressAnnotations} />}
+                <WorkerProgress />
                 <ChatBox
                   isModelSettingsCollapsed={isModelSettingsCollapsed}
                   setIsModelSettingsCollapsed={setIsModelSettingsCollapsed}

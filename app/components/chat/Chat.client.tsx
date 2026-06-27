@@ -8,7 +8,7 @@ import { useMessageParser, usePromptEnhancer, useShortcuts, finalizeMessageParse
 import { description, useChatHistory } from '~/lib/persistence';
 import { chatStore } from '~/lib/stores/chat';
 import { workbenchStore } from '~/lib/stores/workbench';
-import { setBuildStatus, resetBuildStatus } from '~/lib/stores/build-status';
+import { setBuildStatus, resetBuildStatus, setWorkerEvents, clearWorkerEvents } from '~/lib/stores/build-status';
 import type { BuildCompleteness, BuildJobStatus } from '~/lib/stores/build-status';
 import { useExternalWorker, useExternalWorkerFlag } from '~/lib/hooks/use-external-worker';
 import { DEFAULT_MODEL, DEFAULT_PROVIDER, PROMPT_COOKIE_KEY, PROVIDER_LIST } from '~/utils/constants';
@@ -320,6 +320,9 @@ export const ChatImpl = memo(
           : [],
         retryCount: 0,
       });
+
+      /* Phase 5: sync job events to workerEventsStore for the progress UI */
+      setWorkerEvents(extWorkerState.events);
     }, [externalWorkerEnabled, extWorkerState]);
 
     const { parsedMessages, parseMessages } = useMessageParser();
@@ -654,6 +657,7 @@ export const ChatImpl = memo(
 
       // Phase 1 Safety Gate: reset build status at the start of each new build.
       resetBuildStatus();
+      clearWorkerEvents();
 
       /*
        * Phase 2: External Worker path (experimental, feature-flagged).
