@@ -29,7 +29,7 @@ export interface GenerationResult {
 }
 
 export interface ProjectSpec {
-  appType: 'static' | 'react' | 'python';
+  appType: 'static' | 'react' | 'nextjs' | 'vue' | 'python';
   description: string;
   files: Array<{ path: string; purpose: string }>;
   designNotes: string;
@@ -37,20 +37,26 @@ export interface ProjectSpec {
 
 /**
  * Classify the prompt and build a file plan.
- * Previously had a bug where both branches returned 'static'.
  */
 export function planProject(prompt: string): ProjectSpec {
   const lower = prompt.toLowerCase();
 
-  const isPython = /python|flask|fastapi|django|pip\s/i.test(lower);
-  const isReact = /react|vite|next\.?js|tsx|jsx|shadcn|tailwind.*component|hooks?|useState|useEffect/i.test(lower);
+  const isPython = /python|flask|fastapi|django|pip\b/i.test(lower);
+  const isNextjs = /next\.?js|nextjs|next app|app router|pages router/i.test(lower);
+  const isVue = /\bvue\b|vuex|pinia|nuxt/i.test(lower);
+  const isReact =
+    /\breact\b|vite.*react|react.*vite|tsx|jsx|shadcn|radix|hooks?|useState|useEffect|react native/i.test(lower);
   const isExplicitlyStatic =
-    /html|css|vanilla|static|landing page|no framework|no react|without react/i.test(lower);
+    /\bhtml\b|\bvanilla\b|\bstatic\b|landing page|no framework|no react|without react|pure js|plain js/i.test(lower);
 
   let appType: ProjectSpec['appType'];
 
-  if (isPython && !isReact) {
+  if (isPython && !isReact && !isVue) {
     appType = 'python';
+  } else if (isNextjs) {
+    appType = 'nextjs';
+  } else if (isVue && !isReact) {
+    appType = 'vue';
   } else if (isReact && !isExplicitlyStatic) {
     appType = 'react';
   } else {
@@ -59,112 +65,163 @@ export function planProject(prompt: string): ProjectSpec {
 
   const filePlans: Record<ProjectSpec['appType'], Array<{ path: string; purpose: string }>> = {
     static: [
-      { path: 'index.html', purpose: 'Main HTML structure with semantic tags and all sections' },
-      { path: 'styles.css', purpose: 'Complete CSS for all elements, responsive mobile-first' },
-      { path: 'app.js', purpose: 'JavaScript for all interactivity, animations, and logic' },
+      { path: 'index.html', purpose: 'Main HTML with all sections and Tailwind CDN' },
+      { path: 'styles.css', purpose: 'Custom CSS, animations, responsive rules' },
+      { path: 'app.js', purpose: 'All interactivity, animations, and logic' },
     ],
     react: [
-      { path: 'package.json', purpose: 'Vite + React dependencies' },
+      { path: 'package.json', purpose: 'Vite + React + Tailwind dependencies' },
       { path: 'index.html', purpose: 'Vite entry HTML' },
       { path: 'vite.config.js', purpose: 'Vite configuration' },
+      { path: 'tailwind.config.js', purpose: 'Tailwind configuration' },
       { path: 'src/main.jsx', purpose: 'React entry point' },
-      { path: 'src/App.jsx', purpose: 'Root App component' },
-      { path: 'src/index.css', purpose: 'Global styles' },
+      { path: 'src/App.jsx', purpose: 'Root App component with routing' },
+      { path: 'src/index.css', purpose: 'Tailwind directives + global styles' },
+    ],
+    nextjs: [
+      { path: 'package.json', purpose: 'Next.js + Tailwind dependencies' },
+      { path: 'next.config.js', purpose: 'Next.js configuration' },
+      { path: 'tailwind.config.js', purpose: 'Tailwind configuration' },
+      { path: 'app/layout.tsx', purpose: 'Root layout with metadata' },
+      { path: 'app/page.tsx', purpose: 'Home page component' },
+      { path: 'app/globals.css', purpose: 'Tailwind directives + global styles' },
+    ],
+    vue: [
+      { path: 'package.json', purpose: 'Vite + Vue 3 + Tailwind dependencies' },
+      { path: 'index.html', purpose: 'Vite entry HTML' },
+      { path: 'vite.config.js', purpose: 'Vite + Vue plugin configuration' },
+      { path: 'src/main.js', purpose: 'Vue app entry point' },
+      { path: 'src/App.vue', purpose: 'Root Vue component' },
+      { path: 'src/style.css', purpose: 'Tailwind directives + global styles' },
     ],
     python: [
       { path: 'app.py', purpose: 'Flask/FastAPI application with all routes' },
       { path: 'requirements.txt', purpose: 'Python dependencies' },
-      { path: 'templates/index.html', purpose: 'Jinja2 template (if Flask)' },
+      { path: 'templates/index.html', purpose: 'Jinja2/HTML template' },
     ],
   };
 
   return {
     appType,
-    description: prompt.slice(0, 300),
+    description: prompt.slice(0, 400),
     files: filePlans[appType],
     designNotes: 'Beautiful, responsive, mobile-first design. Modern aesthetics, production quality.',
   };
 }
 
+const JSON_RULES = `STRICT RULES:
+- Return raw JSON ONLY. No markdown, no backticks, no explanation.
+- Write COMPLETE file content — no placeholders, no TODO, no "...".
+- Escape all quotes (\\") and newlines (\\n) inside JSON string values.
+- "complete": true only when every file is fully written.
+- Production quality: beautiful UI, real logic, no stubs.`;
+
 function buildSystemPrompt(spec: ProjectSpec): string {
   if (spec.appType === 'static') {
-    return `You are Palmkit's build worker. Generate a COMPLETE static web project.
+    return `You are Palmkit's build worker. Generate a COMPLETE, production-quality static web project.
 
-OUTPUT FORMAT (STRICT JSON):
-{
-  "files": [
+OUTPUT FORMAT:
+{ "files": [
     { "op": "write_file", "path": "index.html", "content": "...full HTML...", "mime_type": "text/html" },
-    { "op": "write_file", "path": "styles.css", "content": "...full CSS...", "mime_type": "text/css" },
-    { "op": "write_file", "path": "app.js", "content": "...full JS...", "mime_type": "text/javascript" }
-  ],
-  "complete": true
-}
+    { "op": "write_file", "path": "styles.css",  "content": "...full CSS...",  "mime_type": "text/css" },
+    { "op": "write_file", "path": "app.js",       "content": "...full JS...",   "mime_type": "text/javascript" }
+  ], "complete": true }
 
-RULES:
-1. Generate ALL THREE files. No exceptions.
-2. index.html MUST have: <link rel="stylesheet" href="styles.css"> and <script src="app.js"></script>
-3. Write COMPLETE content — no placeholders, no TODO, no "...".
-4. Valid JSON — escape quotes and newlines properly.
-5. "complete": true only when all files are fully written.
-6. Return raw JSON only. No markdown fences.
+${JSON_RULES}
+- index.html MUST link styles.css and app.js.
+- Use Tailwind CDN (<script src="https://cdn.tailwindcss.com"></script>) OR write your own CSS in styles.css.
+- Mobile-first (375px base), semantic HTML5, smooth animations, accessible.
 
 PROJECT: ${spec.description}
-DESIGN: ${spec.designNotes}
-
-Mobile-first (390px), CSS variables, gradients, smooth transitions, semantic HTML5, accessible.
-Return ONLY the JSON object.`;
+DESIGN: ${spec.designNotes}`;
   }
 
   if (spec.appType === 'react') {
-    return `You are Palmkit's build worker. Generate a COMPLETE React + Vite project.
+    return `You are Palmkit's build worker. Generate a COMPLETE React + Vite + Tailwind project.
 
-OUTPUT FORMAT (STRICT JSON):
-{
-  "files": [
-    { "op": "write_file", "path": "package.json", "content": "...", "mime_type": "application/json" },
-    { "op": "write_file", "path": "index.html", "content": "...", "mime_type": "text/html" },
-    { "op": "write_file", "path": "vite.config.js", "content": "...", "mime_type": "text/javascript" },
-    { "op": "write_file", "path": "src/main.jsx", "content": "...", "mime_type": "text/javascript" },
-    { "op": "write_file", "path": "src/App.jsx", "content": "...", "mime_type": "text/javascript" },
-    { "op": "write_file", "path": "src/index.css", "content": "...", "mime_type": "text/css" }
-  ],
-  "complete": true
-}
+OUTPUT FORMAT:
+{ "files": [
+    { "op": "write_file", "path": "package.json",    "content": "...", "mime_type": "application/json" },
+    { "op": "write_file", "path": "index.html",       "content": "...", "mime_type": "text/html" },
+    { "op": "write_file", "path": "vite.config.js",   "content": "...", "mime_type": "text/javascript" },
+    { "op": "write_file", "path": "tailwind.config.js","content": "...", "mime_type": "text/javascript" },
+    { "op": "write_file", "path": "src/main.jsx",     "content": "...", "mime_type": "text/javascript" },
+    { "op": "write_file", "path": "src/App.jsx",      "content": "...", "mime_type": "text/javascript" },
+    { "op": "write_file", "path": "src/index.css",    "content": "...", "mime_type": "text/css" }
+  ], "complete": true }
 
-RULES:
-1. package.json must use Vite + React. devDependencies: vite, @vitejs/plugin-react. dependencies: react, react-dom.
-2. vite.config.js: import { defineConfig } from 'vite'; import react from '@vitejs/plugin-react';
-3. src/main.jsx: import React, ReactDOM. Mount to #root.
-4. Write COMPLETE content — no placeholders, no TODO.
-5. Return raw JSON only. No markdown fences.
+${JSON_RULES}
+- package.json: react 18, react-dom 18, vite 5, @vitejs/plugin-react, tailwindcss, autoprefixer, postcss.
+- src/index.css: @tailwind base; @tailwind components; @tailwind utilities;
+- Mobile-first, component-based, real app logic.
 
 PROJECT: ${spec.description}
-DESIGN: ${spec.designNotes}
+DESIGN: ${spec.designNotes}`;
+  }
 
-Mobile-first, modern design, component-based architecture.
-Return ONLY the JSON object.`;
+  if (spec.appType === 'nextjs') {
+    return `You are Palmkit's build worker. Generate a COMPLETE Next.js 14 App Router + Tailwind project.
+
+OUTPUT FORMAT:
+{ "files": [
+    { "op": "write_file", "path": "package.json",        "content": "...", "mime_type": "application/json" },
+    { "op": "write_file", "path": "next.config.js",      "content": "...", "mime_type": "text/javascript" },
+    { "op": "write_file", "path": "tailwind.config.js",  "content": "...", "mime_type": "text/javascript" },
+    { "op": "write_file", "path": "postcss.config.js",   "content": "...", "mime_type": "text/javascript" },
+    { "op": "write_file", "path": "app/layout.tsx",      "content": "...", "mime_type": "text/typescript" },
+    { "op": "write_file", "path": "app/page.tsx",        "content": "...", "mime_type": "text/typescript" },
+    { "op": "write_file", "path": "app/globals.css",     "content": "...", "mime_type": "text/css" }
+  ], "complete": true }
+
+${JSON_RULES}
+- package.json: next 14, react 18, react-dom 18, typescript, tailwindcss, autoprefixer, postcss.
+- Use 'use client' directive only where needed (interactivity).
+- app/globals.css: @tailwind base; @tailwind components; @tailwind utilities;
+- Mobile-first, TypeScript strict, Server Components by default.
+
+PROJECT: ${spec.description}
+DESIGN: ${spec.designNotes}`;
+  }
+
+  if (spec.appType === 'vue') {
+    return `You are Palmkit's build worker. Generate a COMPLETE Vue 3 + Vite + Tailwind project.
+
+OUTPUT FORMAT:
+{ "files": [
+    { "op": "write_file", "path": "package.json",    "content": "...", "mime_type": "application/json" },
+    { "op": "write_file", "path": "index.html",       "content": "...", "mime_type": "text/html" },
+    { "op": "write_file", "path": "vite.config.js",   "content": "...", "mime_type": "text/javascript" },
+    { "op": "write_file", "path": "tailwind.config.js","content": "...", "mime_type": "text/javascript" },
+    { "op": "write_file", "path": "src/main.js",      "content": "...", "mime_type": "text/javascript" },
+    { "op": "write_file", "path": "src/App.vue",      "content": "...", "mime_type": "text/x-vue" },
+    { "op": "write_file", "path": "src/style.css",    "content": "...", "mime_type": "text/css" }
+  ], "complete": true }
+
+${JSON_RULES}
+- package.json: vue 3, vite 5, @vitejs/plugin-vue, tailwindcss, autoprefixer, postcss.
+- Use Composition API (<script setup>).
+- Mobile-first, reactive, real app logic.
+
+PROJECT: ${spec.description}
+DESIGN: ${spec.designNotes}`;
   }
 
   // python
-  return `You are Palmkit's build worker. Generate a COMPLETE Python Flask application.
+  return `You are Palmkit's build worker. Generate a COMPLETE Python web application.
 
-OUTPUT FORMAT (STRICT JSON):
-{
-  "files": [
-    { "op": "write_file", "path": "app.py", "content": "...", "mime_type": "text/x-python" },
-    { "op": "write_file", "path": "requirements.txt", "content": "...", "mime_type": "text/plain" }
-  ],
-  "complete": true
-}
+OUTPUT FORMAT:
+{ "files": [
+    { "op": "write_file", "path": "app.py",              "content": "...", "mime_type": "text/x-python" },
+    { "op": "write_file", "path": "requirements.txt",    "content": "...", "mime_type": "text/plain" },
+    { "op": "write_file", "path": "templates/index.html","content": "...", "mime_type": "text/html" }
+  ], "complete": true }
 
-RULES:
-1. app.py: Complete Flask application with all routes, templates, logic.
-2. requirements.txt: All dependencies, one per line.
-3. Write COMPLETE content — no placeholders, no TODO.
-4. Return raw JSON only. No markdown fences.
+${JSON_RULES}
+- Use Flask (preferred) or FastAPI.
+- requirements.txt: all deps, pinned versions.
+- Complete routes, real logic, no stubs.
 
-PROJECT: ${spec.description}
-Return ONLY the JSON object.`;
+PROJECT: ${spec.description}`;
 }
 
 /**
@@ -182,11 +239,13 @@ export async function generateStaticFiles(
   const systemPrompt = buildSystemPrompt(spec);
   const model = getModelInstance(providerName, modelName, apiKey);
 
+  const maxTokens = spec.appType === 'static' || spec.appType === 'python' ? 16000 : 32000;
+
   const result = await generateText({
     model,
     system: systemPrompt,
     prompt,
-    maxTokens: 16000,
+    maxTokens,
     temperature: 0.7,
   });
 

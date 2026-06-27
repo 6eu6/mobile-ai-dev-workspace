@@ -90,28 +90,35 @@ app.get('/jobs/stats', async (c) => {
 });
 
 /*
- * Main poll loop.
+ * Main poll loop — concurrent job processing.
  *
- * Every 2 seconds, look for a build_job with status='generating' that has no
- * running worker claim on it. If found, claim it (atomic update) and process.
+ * Each tick checks for a pending job and fires it off without blocking.
+ * Up to MAX_CONCURRENT_JOBS can run in parallel — safe because each job
+ * is almost entirely I/O-bound (waiting on the LLM API), not CPU-bound.
  *
- * The polling interval is intentionally short for responsiveness but could be
- * moved to Supabase Realtime (postgres_changes) for lower latency later.
+ * Supabase's claim_next_build_job() RPC uses an atomic UPDATE...RETURNING
+ * so multiple worker instances (horizontal scale) never double-claim a job.
+ *
+ * Scaling options:
+ *   - Vertical:   raise MAX_CONCURRENT_JOBS (LLM API rate limits permitting)
+ *   - Horizontal: deploy more instances — each polls independently
+ *   - Future:     switch to Cloudflare Queues + Durable Objects for zero-timeout
  */
 const POLL_INTERVAL_MS = 2000;
-let isProcessing = false;
+const MAX_CONCURRENT_JOBS = 10;
+let activeJobs = 0;
 
 async function pollLoop() {
-  if (isProcessing) return;
-  isProcessing = true;
+  if (activeJobs >= MAX_CONCURRENT_JOBS) return;
 
-  try {
-    await processNextJob(supabase);
-  } catch (err) {
-    logger.error('Job processing error:', err);
-  } finally {
-    isProcessing = false;
-  }
+  activeJobs++;
+
+  // Fire-and-forget: don't await so the poll loop stays unblocked.
+  processNextJob(supabase)
+    .catch((err) => logger.error('Job processing error:', err))
+    .finally(() => {
+      activeJobs--;
+    });
 }
 
 const pollTimer = setInterval(pollLoop, POLL_INTERVAL_MS);
