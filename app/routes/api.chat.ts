@@ -383,15 +383,15 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
              * on whatever text accumulated so far (result.text is a
              * ResolvablePromise that may have partially resolved).
              *
-             * 25s is chosen because:
-             *   - CF Pages Free wall-clock is generous but CPU is 10ms.
-             *   - OpenRouter streams tokens every ~1-2s; 25s of silence
-             *     = definite cutoff.
-             *   - The StreamRecoveryManager has its own 120s no-data
-             *     timeout, but that's for TOTAL inactivity. This 25s is
-             *     for the await itself hanging.
+             * 90s is chosen because:
+             *   - Promise.all([finishReason, text, usage]) resolves only
+             *     when the LLM FINISHES generating — not per-token.
+             *   - Complex projects (portfolio, SaaS) can take 60-90s to
+             *     generate fully. 25s fired prematurely on active streams.
+             *   - StreamRecoveryManager handles truly dead streams
+             *     (120s no-data timeout). This covers completion wait time.
              */
-            const SEGMENT_AWAIT_TIMEOUT_MS = 25_000;
+            const SEGMENT_AWAIT_TIMEOUT_MS = 90_000;
             const timeoutPromise = new Promise<never>((_, reject) =>
               setTimeout(() => reject(new Error('SEGMENT_AWAIT_TIMEOUT')), SEGMENT_AWAIT_TIMEOUT_MS),
             );
