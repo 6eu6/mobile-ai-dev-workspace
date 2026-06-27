@@ -24,7 +24,6 @@ import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createCohere } from '@ai-sdk/cohere';
 import { createMistral } from '@ai-sdk/mistral';
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
-import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import type { LanguageModelV1 } from 'ai';
 import { logger } from './logger';
 
@@ -40,7 +39,7 @@ interface ProviderConfig {
  * (must match PROVIDER_LIST in the CF Pages app).
  */
 const REGISTRY: Record<string, ProviderConfig> = {
-  // ─── Dedicated SDK providers ─────────────────────────────────────────────
+  // ─── Dedicated SDK providers ────────────────────────────────────────────
   OpenAI: {
     apiTokenKey: 'OPENAI_API_KEY',
     createModel: (model, apiKey) => createOpenAI({ apiKey })(model),
@@ -119,20 +118,25 @@ const REGISTRY: Record<string, ProviderConfig> = {
       createOpenAI({ apiKey, baseURL: 'https://api.fireworks.ai/inference/v1', name: 'fireworks' })(model),
   },
 
-  // ─── Aggregator ──────────────────────────────────────────────────────────
+  // ─── Aggregator ─────────────────────────────────────────────────────────
+  // Use createOpenAI with OpenRouter's OpenAI-compatible endpoint instead of
+  // @openrouter/ai-sdk-provider which now requires ai ^5 (incompatible with
+  // our ai ^4 SDK). OpenRouter's API accepts the ~ tilde prefix natively
+  // (e.g. ~anthropic/claude-sonnet-latest resolves to the latest Claude Sonnet).
   OpenRouter: {
     apiTokenKey: 'OPENROUTER_API_KEY',
     createModel: (model, apiKey) =>
-      createOpenRouter({
+      createOpenAI({
         apiKey,
+        baseURL: 'https://openrouter.ai/api/v1',
         headers: {
           'HTTP-Referer': 'https://palmkit.app',
           'X-Title': 'Palmkit Build Worker',
         },
-      })(model) as unknown as LanguageModelV1,
+      })(model),
   },
 
-  // ─── Z.ai ───────────────────────────────────────────────────────────────
+  // ─── Z.ai ─────────────────────────────────────────────────────────────
   'Z.ai': {
     apiTokenKey: 'ZAI_API_KEY',
     createModel: (model, apiKey) =>
@@ -152,7 +156,7 @@ const REGISTRY: Record<string, ProviderConfig> = {
     },
   },
 
-  // ─── Local providers (need user-supplied baseURL) ─────────────────────────
+  // ─── Local providers (need user-supplied baseURL) ───────────────────────────
   Ollama: {
     apiTokenKey: 'OLLAMA_API_KEY',
     createModel: (model, _apiKey, options) => {
@@ -168,7 +172,7 @@ const REGISTRY: Record<string, ProviderConfig> = {
     },
   },
 
-  // ─── OpenAI-compatible (user-supplied baseURL) ───────────────────────────
+  // ─── OpenAI-compatible (user-supplied baseURL) ───────────────────────────────
   OpenAILike: {
     apiTokenKey: 'OPENAI_LIKE_API_KEY',
     createModel: (model, apiKey, options) => {
@@ -183,7 +187,7 @@ const REGISTRY: Record<string, ProviderConfig> = {
  * Get a model instance for the given provider + model + decrypted API key.
  *
  * @param providerName  e.g. 'OpenRouter', 'Anthropic', 'Deepseek'
- * @param modelName     e.g. 'deepseek/deepseek-chat-v3.1', 'claude-3-5-sonnet-20241022'
+ * @param modelName     e.g. '~anthropic/claude-sonnet-latest', 'claude-3-5-sonnet-20241022'
  * @param apiKey        The user's decrypted API key (from user_api_keys table)
  * @param options       Optional provider-specific settings (baseURL, region, etc.)
  */
