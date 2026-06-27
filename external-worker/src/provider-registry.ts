@@ -121,21 +121,19 @@ const REGISTRY: Record<string, ProviderConfig> = {
   // ─── Aggregator ──────────────────────────────────────────────────────────
   // Use createOpenAI with OpenRouter's OpenAI-compatible endpoint instead of
   // @openrouter/ai-sdk-provider which now requires ai ^5 (incompatible with
-  // our ai ^4 SDK). Strip the ~ tilde prefix that OpenRouter uses for "latest"
-  // model aliases (e.g. ~anthropic/claude-sonnet-latest → anthropic/claude-sonnet-latest).
+  // our ai ^4 SDK). OpenRouter's API accepts the ~ tilde prefix natively
+  // (e.g. ~anthropic/claude-sonnet-latest resolves to the latest Claude Sonnet).
   OpenRouter: {
     apiTokenKey: 'OPENROUTER_API_KEY',
-    createModel: (model, apiKey) => {
-      const normalizedModel = model.replace(/^~/, '');
-      return createOpenAI({
+    createModel: (model, apiKey) =>
+      createOpenAI({
         apiKey,
         baseURL: 'https://openrouter.ai/api/v1',
         headers: {
           'HTTP-Referer': 'https://palmkit.app',
           'X-Title': 'Palmkit Build Worker',
         },
-      })(normalizedModel);
-    },
+      })(model),
   },
 
   // ─── Z.ai ───────────────────────────────────────────────────────────────
