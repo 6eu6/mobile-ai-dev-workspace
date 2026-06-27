@@ -35,6 +35,8 @@ export type JobEventType =
   | 'build_check_passed'
   | 'build_check_failed'
   | 'repair_started'
+  | 'edit_started'
+  | 'edit_completed'
   | 'job_failed';
 
 export interface JobEventPayload {

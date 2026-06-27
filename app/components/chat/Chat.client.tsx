@@ -673,7 +673,12 @@ export const ChatImpl = memo(
         chatStore.setKey('aborted', false);
         setInput('');
         Cookies.remove(PROMPT_COOKIE_KEY);
-        await startExtJob(finalMessageContent, model, provider.name);
+
+        /* Phase 7: if there's a completed build in this session, treat as edit */
+        const editFromJobId =
+          extWorkerState.status === 'ready_for_preview' && extWorkerState.jobId ? extWorkerState.jobId : undefined;
+
+        await startExtJob(finalMessageContent, model, provider.name, editFromJobId);
 
         return;
       }

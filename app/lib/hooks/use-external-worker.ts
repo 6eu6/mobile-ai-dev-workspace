@@ -108,7 +108,7 @@ export function useExternalWorker() {
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fetchedPreview = useRef(false);
 
-  const startJob = useCallback(async (prompt: string, model: string, provider: string) => {
+  const startJob = useCallback(async (prompt: string, model: string, provider: string, editFromJobId?: string) => {
     setState({ ...initialState, status: 'pending', currentStep: 'queued' });
     fetchedPreview.current = false;
     resetPreviewFiles();
@@ -117,7 +117,7 @@ export function useExternalWorker() {
       const resp = await fetch('/api/jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, model, provider }),
+        body: JSON.stringify({ prompt, model, provider, ...(editFromJobId ? { editJobId: editFromJobId } : {}) }),
       });
 
       if (!resp.ok) {

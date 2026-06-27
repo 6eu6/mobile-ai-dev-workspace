@@ -383,6 +383,97 @@ export async function generateStaticFiles(
 }
 
 /**
+ * Phase 7 — Edit Mode Generator
+ *
+ * Given the existing files and an edit prompt, asks the LLM to return
+ * ONLY the files that need to change. Merges them with the originals.
+ */
+export async function generateEdit(
+  existingFiles: FileOperation[],
+  appType: string,
+  editPrompt: string,
+  providerName: string,
+  modelName: string,
+  apiKey: string,
+): Promise<FileOperation[]> {
+  const fileDump = existingFiles
+    .map((f) => `=== ${f.path} ===\n${f.content}`)
+    .join('\n\n')
+    .slice(0, 12000);
+
+  const systemPrompt = `You are Palmkit's code editor. You are modifying an existing ${appType} project.
+
+Current project files:
+${fileDump}
+
+The user wants to make changes. Return ONLY the files that need to change.
+
+OUTPUT FORMAT:
+{"files":[{"op":"write_file","path":"...","content":"..."},...], "complete": true}
+
+STRICT RULES:
+- Return raw JSON ONLY. No markdown, no backticks, no explanation.
+- Include ONLY files that actually change. Unchanged files MUST NOT be included.
+- Write COMPLETE file content for each changed file — no truncation, no "...rest stays same".
+- "complete": true when all changes are included.
+- Production quality — no placeholders, no TODOs.`;
+
+  const model = getModelInstance(providerName, modelName, apiKey);
+  const result = await generateText({
+    model,
+    system: systemPrompt,
+    prompt: editPrompt,
+    maxTokens: 16000,
+    temperature: 0.5,
+  });
+
+  const rawText = result.text ?? '';
+
+  if (!rawText) {
+    throw new Error(`${providerName} returned empty content for edit`);
+  }
+
+  logger.info(`[generateEdit] received ${rawText.length} chars`);
+
+  let parsed: { files?: FileOperation[] };
+
+  try {
+    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    parsed = JSON.parse(jsonMatch?.[0] ?? rawText);
+  } catch {
+    const recovered = extractPartialFiles(rawText);
+    parsed = { files: recovered };
+  }
+
+  const patchedFiles = Array.isArray(parsed.files) ? parsed.files : [];
+
+  if (patchedFiles.length === 0) {
+    logger.warn('[generateEdit] LLM returned no changed files — returning original files unchanged');
+    return existingFiles;
+  }
+
+  for (const f of patchedFiles) {
+    if (!f.mime_type) f.mime_type = inferMimeType(f.path);
+  }
+
+  const patchMap = new Map(
+    patchedFiles
+      .filter((f) => f.path && typeof f.content === 'string' && f.content.trim().length > 0)
+      .map((f) => [f.path, f]),
+  );
+
+  logger.info(`[generateEdit] patching ${patchMap.size} file(s): ${[...patchMap.keys()].join(', ')}`);
+
+  const merged = new Map(existingFiles.map((f) => [f.path, f]));
+
+  for (const [path, file] of patchMap) {
+    merged.set(path, file);
+  }
+
+  return [...merged.values()];
+}
+
+/**
  * Phase 4 — Repair Agent
  *
  * Given build errors and the affected files, asks the LLM for targeted fixes.

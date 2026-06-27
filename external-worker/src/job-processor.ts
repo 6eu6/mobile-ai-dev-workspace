@@ -18,10 +18,10 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { logger } from './logger';
-import { planProject, generateStaticFiles, validateGeneration, repairGeneration, type GenerationResult } from './generator';
+import { planProject, generateStaticFiles, validateGeneration, repairGeneration, generateEdit, type GenerationResult } from './generator';
 import { checkBuild, BUILD_CHECK_TYPES } from './build-checker';
 import { createRunner } from './build-runner';
-import { putFile, buildKey } from './r2-client';
+import { putFile, getFileText, buildKey } from './r2-client';
 import { getUserApiKey } from './key-fetcher';
 import { emitEvent, emitFileWritten } from './event-emitter';
 import { createHash } from 'crypto';
@@ -160,89 +160,163 @@ export async function processNextJob(supabase: SupabaseClient): Promise<void> {
 
     logger.info(`Job ${job.id}: API key fetched for provider ${providerName}`);
 
-    // ─── Phase 1: PLAN ─────────────────────────────────────────────────
-    await updateJobProgress(supabase, job.id, 10, 'plan');
-    await emitEvent(supabase, job.id, 'planning_started', 'Planning app structure...');
-    await recordStep(supabase, job.id, { type: 'plan', status: 'running', order: 1, inputSummary: prompt.slice(0, 100) });
-
-    const spec = planProject(prompt);
-
-    await recordStep(supabase, job.id, {
-      type: 'plan',
-      status: 'completed',
-      order: 1,
-      outputSummary: `spec: ${spec.appType}, ${spec.files.length} files`,
-    });
-    await emitEvent(supabase, job.id, 'planning_completed', `Planned ${spec.files.length} files (${spec.appType})`, { fileCount: spec.files.length, appType: spec.appType });
-
-    logger.info(`Job ${job.id}: plan complete → ${spec.appType}, ${spec.files.length} files`);
-
-    // ─── Phase 2: GENERATE ─────────────────────────────────────────────
-    await updateJobProgress(supabase, job.id, 30, 'generate_files');
-    await emitEvent(supabase, job.id, 'file_generation_started', `Generating files with ${providerName}...`);
-    await recordStep(supabase, job.id, { type: 'generate_file', status: 'running', order: 2 });
+    // ─── Phase 7: EDIT MODE ────────────────────────────────────────────
+    const editJobId: string | null = job.validation_result?.editJobId ?? null;
 
     let result: GenerationResult;
 
-    try {
-      result = await generateStaticFiles(prompt, spec, providerName, modelName, apiKey);
-    } catch (genError: any) {
+    if (editJobId) {
+      await updateJobProgress(supabase, job.id, 10, 'load_existing_files');
+      await emitEvent(supabase, job.id, 'edit_started', 'Loading existing project files...');
+      await recordStep(supabase, job.id, { type: 'plan', status: 'running', order: 1, inputSummary: `edit from job ${editJobId}` });
+
+      /* Fetch existing job metadata (appType) */
+      const { data: editJob } = await supabase
+        .from('build_jobs')
+        .select('validation_result')
+        .eq('id', editJobId)
+        .eq('user_id', job.user_id)
+        .single();
+
+      const editAppType = (editJob?.validation_result?.appType as GenerationResult['appType']) ?? 'static';
+
+      /* Fetch the file manifest for the original job */
+      const { data: manifest, error: manifestErr } = await supabase
+        .from('project_files_manifest')
+        .select('path, storage_key, mime_type')
+        .eq('job_id', editJobId)
+        .order('path');
+
+      if (manifestErr || !manifest || manifest.length === 0) {
+        await failJob(supabase, job.id, 'Could not load existing project files for editing — try a new build instead');
+        return;
+      }
+
+      /* Fetch file contents from R2 */
+      const existingFiles: Array<{ op: 'write_file'; path: string; content: string; mime_type?: string }> = [];
+
+      for (const row of manifest) {
+        const content = await getFileText(row.storage_key);
+
+        if (content !== null) {
+          existingFiles.push({ op: 'write_file', path: row.path, content, mime_type: row.mime_type ?? undefined });
+        }
+      }
+
+      if (existingFiles.length === 0) {
+        await failJob(supabase, job.id, 'Failed to read project files from storage — try a new build instead');
+        return;
+      }
+
+      await recordStep(supabase, job.id, { type: 'plan', status: 'completed', order: 1, outputSummary: `loaded ${existingFiles.length} files (${editAppType})` });
+      await emitEvent(supabase, job.id, 'planning_completed', `Loaded ${existingFiles.length} existing files, applying your changes...`, { fileCount: existingFiles.length, appType: editAppType });
+
+      /* Generate edit (patch mode — LLM returns only changed files) */
+      await updateJobProgress(supabase, job.id, 40, 'generate_edit');
+      await emitEvent(supabase, job.id, 'file_generation_started', `Applying changes with ${providerName}...`);
+      await recordStep(supabase, job.id, { type: 'generate_file', status: 'running', order: 2 });
+
+      let mergedFiles: typeof existingFiles;
+
+      try {
+        mergedFiles = await generateEdit(existingFiles, editAppType, prompt, providerName, modelName, apiKey);
+      } catch (editErr: any) {
+        await recordStep(supabase, job.id, { type: 'generate_file', status: 'failed', order: 2, error: editErr.message });
+        await emitEvent(supabase, job.id, 'job_failed', `Edit failed: ${editErr.message}`, { error: editErr.message });
+        await failJob(supabase, job.id, `Edit generation failed: ${editErr.message}`);
+        return;
+      }
+
+      await emitEvent(supabase, job.id, 'edit_completed', `Changes applied — ${mergedFiles.length} files in project`);
+      await recordStep(supabase, job.id, { type: 'generate_file', status: 'completed', order: 2, outputSummary: `${mergedFiles.length} merged files (${editAppType})` });
+
+      result = { files: mergedFiles, complete: true, rawText: '', appType: editAppType };
+      logger.info(`Job ${job.id}: edit complete → ${mergedFiles.length} files (${editAppType})`);
+    } else {
+      // ─── Phase 1: PLAN ─────────────────────────────────────────────────
+      await updateJobProgress(supabase, job.id, 10, 'plan');
+      await emitEvent(supabase, job.id, 'planning_started', 'Planning app structure...');
+      await recordStep(supabase, job.id, { type: 'plan', status: 'running', order: 1, inputSummary: prompt.slice(0, 100) });
+
+      const spec = planProject(prompt);
+
+      await recordStep(supabase, job.id, {
+        type: 'plan',
+        status: 'completed',
+        order: 1,
+        outputSummary: `spec: ${spec.appType}, ${spec.files.length} files`,
+      });
+      await emitEvent(supabase, job.id, 'planning_completed', `Planned ${spec.files.length} files (${spec.appType})`, { fileCount: spec.files.length, appType: spec.appType });
+
+      logger.info(`Job ${job.id}: plan complete → ${spec.appType}, ${spec.files.length} files`);
+
+      // ─── Phase 2: GENERATE ─────────────────────────────────────────────
+      await updateJobProgress(supabase, job.id, 30, 'generate_files');
+      await emitEvent(supabase, job.id, 'file_generation_started', `Generating files with ${providerName}...`);
+      await recordStep(supabase, job.id, { type: 'generate_file', status: 'running', order: 2 });
+
+      try {
+        result = await generateStaticFiles(prompt, spec, providerName, modelName, apiKey);
+      } catch (genError: any) {
+        await recordStep(supabase, job.id, {
+          type: 'generate_file',
+          status: 'failed',
+          order: 2,
+          error: genError.message,
+        });
+        await emitEvent(supabase, job.id, 'job_failed', `Generation failed: ${genError.message}`, { error: genError.message });
+        await failJob(supabase, job.id, `Generation failed (${providerName}/${modelName}): ${genError.message}`);
+        return;
+      }
+
+      await emitEvent(supabase, job.id, 'file_generation_completed', `Generated ${result.files.length} files (${result.appType})`);
+
       await recordStep(supabase, job.id, {
         type: 'generate_file',
-        status: 'failed',
+        status: 'completed',
         order: 2,
-        error: genError.message,
+        outputSummary: `${result.files.length} files (${result.appType}), ${result.rawText.length} chars`,
       });
-      await emitEvent(supabase, job.id, 'job_failed', `Generation failed: ${genError.message}`, { error: genError.message });
-      await failJob(supabase, job.id, `Generation failed (${providerName}/${modelName}): ${genError.message}`);
-      return;
+
+      logger.info(`Job ${job.id}: generation complete → ${result.files.length} files (${result.appType})`);
     }
-
-    await emitEvent(supabase, job.id, 'file_generation_completed', `Generated ${result.files.length} files (${result.appType})`);
-
-    await recordStep(supabase, job.id, {
-      type: 'generate_file',
-      status: 'completed',
-      order: 2,
-      outputSummary: `${result.files.length} files (${result.appType}), ${result.rawText.length} chars`,
-    });
-
-    logger.info(`Job ${job.id}: generation complete → ${result.files.length} files (${result.appType})`);
 
     // Initialise the correct runner for this app type.
     const runner = createRunner(result.appType);
 
-    // ─── Phase 3: VALIDATE ─────────────────────────────────────────────
-    await updateJobProgress(supabase, job.id, 50, 'validate');
-    await emitEvent(supabase, job.id, 'validation_started', 'Validating output...');
-    await recordStep(supabase, job.id, { type: 'validate', status: 'running', order: 3 });
+    // ─── Phase 3: VALIDATE (skip for edits — merged files are already valid) ─
+    if (!editJobId) {
+      await updateJobProgress(supabase, job.id, 50, 'validate');
+      await emitEvent(supabase, job.id, 'validation_started', 'Validating output...');
+      await recordStep(supabase, job.id, { type: 'validate', status: 'running', order: 3 });
 
-    const issues = validateGeneration(result);
+      const issues = validateGeneration(result);
 
-    if (issues.length > 0) {
+      if (issues.length > 0) {
+        await recordStep(supabase, job.id, {
+          type: 'validate',
+          status: 'failed',
+          order: 3,
+          error: issues.join('; '),
+        });
+        await emitEvent(supabase, job.id, 'validation_failed', `Validation failed: ${issues[0]}`, { issues });
+        await failJob(supabase, job.id, `Validation failed: ${issues.join('; ')}`);
+        return;
+      }
+
       await recordStep(supabase, job.id, {
         type: 'validate',
-        status: 'failed',
+        status: 'completed',
         order: 3,
-        error: issues.join('; '),
+        outputSummary: 'all checks passed',
       });
-      await emitEvent(supabase, job.id, 'validation_failed', `Validation failed: ${issues[0]}`, { issues });
-      await failJob(supabase, job.id, `Validation failed: ${issues.join('; ')}`);
-      return;
+      await emitEvent(supabase, job.id, 'validation_passed', 'Validation passed');
+
+      logger.info(`Job ${job.id}: validation passed`);
     }
 
-    await recordStep(supabase, job.id, {
-      type: 'validate',
-      status: 'completed',
-      order: 3,
-      outputSummary: 'all checks passed',
-    });
-    await emitEvent(supabase, job.id, 'validation_passed', 'Validation passed');
-
-    logger.info(`Job ${job.id}: validation passed`);
-
-    // ─── Phase 3.5: BUILD CHECK (react / vue / nextjs only) ───────────
-    if (BUILD_CHECK_TYPES.has(result.appType)) {
+    // ─── Phase 3.5: BUILD CHECK (react / vue / nextjs only; skip for edits) ─
+    if (!editJobId && BUILD_CHECK_TYPES.has(result.appType)) {
       await updateJobProgress(supabase, job.id, 55, 'build_check');
       await emitEvent(supabase, job.id, 'build_check_started', `Running build check for ${result.appType}...`);
       await recordStep(supabase, job.id, { type: 'build_check', status: 'running', order: 4 });
@@ -407,8 +481,8 @@ export async function processNextJob(supabase: SupabaseClient): Promise<void> {
           completeness: 'complete',
           appType: result.appType,
           runtimeMode: runner.runtimeMode,
-          /* Phase 6: preserve prompt snippet for build history display */
           prompt: (job.validation_result?.prompt ?? prompt).slice(0, 200),
+          ...(editJobId ? { editJobId } : {}),
         },
         updated_at: new Date().toISOString(),
       })

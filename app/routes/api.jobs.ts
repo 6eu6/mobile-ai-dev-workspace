@@ -57,7 +57,7 @@ export async function action(args: ActionFunctionArgs) {
     return json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const { prompt, model, provider, projectId, files } = body;
+  const { prompt, model, provider, projectId, files, editJobId } = body;
 
   if (!prompt || typeof prompt !== 'string') {
     return json({ error: 'prompt is required' }, { status: 400 });
@@ -81,7 +81,13 @@ export async function action(args: ActionFunctionArgs) {
       progress: 0,
       retry_count: 0,
       has_completion_marker: false,
-      validation_result: { prompt, model, provider, fileCount: Object.keys(files ?? {}).length },
+      validation_result: {
+        prompt,
+        model,
+        provider,
+        fileCount: Object.keys(files ?? {}).length,
+        ...(editJobId ? { editJobId } : {}),
+      },
     })
     .select('id')
     .single();
