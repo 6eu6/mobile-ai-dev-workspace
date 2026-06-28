@@ -1,7 +1,7 @@
 import { useStore } from '@nanostores/react';
 import { motion, type HTMLMotionProps, type Variants } from 'framer-motion';
 import { computed } from 'nanostores';
-import { memo, useCallback, useEffect, useState, useMemo } from 'react';
+import { memo, useCallback, useEffect, useState, useMemo, useRef } from 'react';
 import { toast } from 'react-toastify';
 import { Popover, Transition } from '@headlessui/react';
 import { diffLines, type Change } from 'diff';
@@ -22,6 +22,8 @@ import { EditorPanel } from './EditorPanel';
 import { Preview } from './Preview';
 import { EmptyWorkspaceState } from '~/components/ui/workspace/EmptyWorkspaceState';
 import { mobileActiveTab } from '~/lib/stores/mobile';
+import { previewFilesStore } from '~/lib/stores/build-status';
+import { WORK_DIR } from '~/utils/constants';
 import useViewport from '~/lib/hooks';
 
 import { usePreviewStore } from '~/lib/stores/previews';
@@ -304,6 +306,31 @@ export const Workbench = memo(
     const files = useStore(workbenchStore.files);
     const hasNoFiles = useMemo(() => !Object.values(files).some((dirent) => dirent?.type === 'file'), [files]);
     const selectedView = useStore(workbenchStore.currentView);
+    const extPreviewFiles = useStore(previewFilesStore);
+
+    // Inject external-worker R2 files into workbenchStore so they appear in the Code tab
+    const _injectedPaths = useRef<Set<string>>(new Set());
+    useEffect(() => {
+      const entries = Object.entries(extPreviewFiles);
+
+      // Remove stale entries from a previous build
+      for (const oldPath of _injectedPaths.current) {
+        if (!entries.some(([p]) => `${WORK_DIR}/${p}` === oldPath)) {
+          workbenchStore.files.setKey(oldPath, undefined);
+        }
+      }
+
+      const nextPaths = new Set<string>();
+
+      for (const [filePath, content] of entries) {
+        const fullPath = `${WORK_DIR}/${filePath}`;
+        workbenchStore.files.setKey(fullPath, { type: 'file', content, isBinary: false });
+        nextPaths.add(fullPath);
+      }
+
+      _injectedPaths.current = nextPaths;
+    }, [extPreviewFiles]);
+
     const { showChat } = useStore(chatStore);
     const canHideChat = showWorkbench || !showChat;
 
