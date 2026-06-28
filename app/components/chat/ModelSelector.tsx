@@ -1,5 +1,6 @@
 import type { ProviderInfo } from '~/types/model';
 import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import type { KeyboardEvent } from 'react';
 import type { ModelInfo } from '~/lib/modules/llm/types';
 import { classNames } from '~/utils/classNames';
@@ -121,14 +122,18 @@ export const ModelSelector = ({
   const [focusedModelIndex, setFocusedModelIndex] = useState(-1);
   const modelSearchInputRef = useRef<HTMLInputElement>(null);
   const modelOptionsRef = useRef<(HTMLDivElement | null)[]>([]);
-  const modelDropdownRef = useRef<HTMLDivElement>(null);
+  const modelTriggerRef = useRef<HTMLDivElement>(null);
+  const modelPortalRef = useRef<HTMLDivElement>(null);
+  const [modelRect, setModelRect] = useState<DOMRect | null>(null);
   const [providerSearchQuery, setProviderSearchQuery] = useState('');
   const [debouncedProviderSearchQuery, setDebouncedProviderSearchQuery] = useState('');
   const [isProviderDropdownOpen, setIsProviderDropdownOpen] = useState(false);
   const [focusedProviderIndex, setFocusedProviderIndex] = useState(-1);
   const providerSearchInputRef = useRef<HTMLInputElement>(null);
   const providerOptionsRef = useRef<(HTMLDivElement | null)[]>([]);
-  const providerDropdownRef = useRef<HTMLDivElement>(null);
+  const providerTriggerRef = useRef<HTMLDivElement>(null);
+  const providerPortalRef = useRef<HTMLDivElement>(null);
+  const [providerRect, setProviderRect] = useState<DOMRect | null>(null);
   const [showFreeModelsOnly, setShowFreeModelsOnly] = useState(false);
 
   type ConnectionStatus = 'unknown' | 'connected' | 'disconnected';
@@ -176,12 +181,19 @@ export const ModelSelector = ({
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (modelDropdownRef.current && !modelDropdownRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      const inModelTrigger = modelTriggerRef.current?.contains(target);
+      const inModelPortal = modelPortalRef.current?.contains(target);
+
+      if (!inModelTrigger && !inModelPortal) {
         setIsModelDropdownOpen(false);
         setModelSearchQuery('');
       }
 
-      if (providerDropdownRef.current && !providerDropdownRef.current.contains(event.target as Node)) {
+      const inProviderTrigger = providerTriggerRef.current?.contains(target);
+      const inProviderPortal = providerPortalRef.current?.contains(target);
+
+      if (!inProviderTrigger && !inProviderPortal) {
         setIsProviderDropdownOpen(false);
         setProviderSearchQuery('');
       }
@@ -191,6 +203,31 @@ export const ModelSelector = ({
 
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Keep portal dropdown aligned when user scrolls or resizes window
+  useEffect(() => {
+    if (!isProviderDropdownOpen && !isModelDropdownOpen) {
+      return undefined;
+    }
+
+    const update = () => {
+      if (isProviderDropdownOpen && providerTriggerRef.current) {
+        setProviderRect(providerTriggerRef.current.getBoundingClientRect());
+      }
+
+      if (isModelDropdownOpen && modelTriggerRef.current) {
+        setModelRect(modelTriggerRef.current.getBoundingClientRect());
+      }
+    };
+
+    window.addEventListener('scroll', update, true);
+    window.addEventListener('resize', update);
+
+    return () => {
+      window.removeEventListener('scroll', update, true);
+      window.removeEventListener('resize', update);
+    };
+  }, [isProviderDropdownOpen, isModelDropdownOpen]);
 
   const filteredModels = useMemo(() => {
     const baseModels = [...modelList].filter((e) => e.provider === provider?.name && e.name);
@@ -457,7 +494,7 @@ export const ModelSelector = ({
   return (
     <div className="flex gap-2 flex-col sm:flex-row">
       {/* Provider Combobox */}
-      <div className="relative flex w-full" onKeyDown={handleProviderKeyDown} ref={providerDropdownRef}>
+      <div className="relative flex w-full" onKeyDown={handleProviderKeyDown} ref={providerTriggerRef}>
         <div
           className={classNames(
             'w-full p-2 rounded-lg border border-palmkit-elements-borderColor',
@@ -466,10 +503,21 @@ export const ModelSelector = ({
             'transition-all cursor-pointer',
             isProviderDropdownOpen ? 'ring-2 ring-palmkit-elements-focus' : undefined,
           )}
-          onClick={() => setIsProviderDropdownOpen(!isProviderDropdownOpen)}
+          onClick={() => {
+            if (!isProviderDropdownOpen && providerTriggerRef.current) {
+              setProviderRect(providerTriggerRef.current.getBoundingClientRect());
+            }
+
+            setIsProviderDropdownOpen(!isProviderDropdownOpen);
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault();
+
+              if (!isProviderDropdownOpen && providerTriggerRef.current) {
+                setProviderRect(providerTriggerRef.current.getBoundingClientRect());
+              }
+
               setIsProviderDropdownOpen(!isProviderDropdownOpen);
             }
           }}
@@ -511,144 +559,156 @@ export const ModelSelector = ({
           </div>
         </div>
 
-        {isProviderDropdownOpen && (
-          <div
-            className="absolute z-20 w-full mt-1 py-1 rounded-lg border border-palmkit-elements-borderColor bg-palmkit-elements-background-depth-2 shadow-lg"
-            role="listbox"
-            id="provider-listbox"
-          >
-            <div className="px-2 pb-2">
-              <div className="relative">
-                <input
-                  ref={providerSearchInputRef}
-                  type="text"
-                  value={providerSearchQuery}
-                  onChange={(e) => setProviderSearchQuery(e.target.value)}
-                  placeholder="Search providers... (⌘K to clear)"
-                  className={classNames(
-                    'w-full pl-8 pr-8 py-1.5 rounded-md text-sm',
-                    'bg-palmkit-elements-background-depth-2 border border-palmkit-elements-borderColor',
-                    'text-palmkit-elements-textPrimary placeholder:text-palmkit-elements-textTertiary',
-                    'focus:outline-none focus:ring-2 focus:ring-palmkit-elements-focus',
-                    'transition-all',
+        {isProviderDropdownOpen &&
+          providerRect &&
+          createPortal(
+            <div
+              ref={providerPortalRef}
+              onKeyDown={handleProviderKeyDown}
+              style={{
+                position: 'fixed',
+                top: providerRect.bottom + 4,
+                left: providerRect.left,
+                width: providerRect.width,
+                zIndex: 9999,
+              }}
+              className="py-1 rounded-lg border border-palmkit-elements-borderColor bg-palmkit-elements-background-depth-2 shadow-lg"
+              role="listbox"
+              id="provider-listbox"
+            >
+              <div className="px-2 pb-2">
+                <div className="relative">
+                  <input
+                    ref={providerSearchInputRef}
+                    type="text"
+                    value={providerSearchQuery}
+                    onChange={(e) => setProviderSearchQuery(e.target.value)}
+                    placeholder="Search providers... (⌘K to clear)"
+                    className={classNames(
+                      'w-full pl-8 pr-8 py-1.5 rounded-md text-sm',
+                      'bg-palmkit-elements-background-depth-2 border border-palmkit-elements-borderColor',
+                      'text-palmkit-elements-textPrimary placeholder:text-palmkit-elements-textTertiary',
+                      'focus:outline-none focus:ring-2 focus:ring-palmkit-elements-focus',
+                      'transition-all',
+                    )}
+                    onClick={(e) => e.stopPropagation()}
+                    role="searchbox"
+                    aria-label="Search providers"
+                  />
+                  <div className="absolute left-2.5 top-1/2 -translate-y-1/2">
+                    <span className="i-ph:magnifying-glass text-palmkit-elements-textTertiary" />
+                  </div>
+                  {providerSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        clearProviderSearch();
+                      }}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-palmkit-elements-background-depth-3 transition-colors"
+                      aria-label="Clear search"
+                    >
+                      <span className="i-ph:x text-palmkit-elements-textTertiary text-xs" />
+                    </button>
                   )}
-                  onClick={(e) => e.stopPropagation()}
-                  role="searchbox"
-                  aria-label="Search providers"
-                />
-                <div className="absolute left-2.5 top-1/2 -translate-y-1/2">
-                  <span className="i-ph:magnifying-glass text-palmkit-elements-textTertiary" />
                 </div>
-                {providerSearchQuery && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      clearProviderSearch();
-                    }}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-palmkit-elements-background-depth-3 transition-colors"
-                    aria-label="Clear search"
-                  >
-                    <span className="i-ph:x text-palmkit-elements-textTertiary text-xs" />
-                  </button>
+              </div>
+
+              <div
+                className={classNames(
+                  'max-h-60 overflow-y-auto',
+                  'sm:scrollbar-none',
+                  '[&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:h-2',
+                  '[&::-webkit-scrollbar-thumb]:bg-palmkit-elements-borderColor',
+                  '[&::-webkit-scrollbar-thumb]:hover:bg-palmkit-elements-borderColorHover',
+                  '[&::-webkit-scrollbar-thumb]:rounded-full',
+                  '[&::-webkit-scrollbar-track]:bg-palmkit-elements-background-depth-2',
+                  '[&::-webkit-scrollbar-track]:rounded-full',
+                  'sm:[&::-webkit-scrollbar]:w-1.5 sm:[&::-webkit-scrollbar]:h-1.5',
+                  'sm:hover:[&::-webkit-scrollbar-thumb]:bg-palmkit-elements-borderColor/50',
+                  'sm:hover:[&::-webkit-scrollbar-thumb:hover]:bg-palmkit-elements-borderColor',
+                  'sm:[&::-webkit-scrollbar-track]:bg-transparent',
+                )}
+              >
+                {filteredProviders.length === 0 ? (
+                  <div className="px-3 py-3 text-sm">
+                    <div className="text-palmkit-elements-textTertiary mb-1">
+                      {debouncedProviderSearchQuery
+                        ? `No providers match "${debouncedProviderSearchQuery}"`
+                        : 'No providers found'}
+                    </div>
+                    {debouncedProviderSearchQuery && (
+                      <div className="text-xs text-palmkit-elements-textTertiary">
+                        Try searching for provider names like "OpenAI", "Anthropic", or "Google"
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  filteredProviders.map((providerOption, index) => (
+                    <div
+                      ref={(el) => (providerOptionsRef.current[index] = el)}
+                      key={providerOption.name}
+                      role="option"
+                      aria-selected={provider?.name === providerOption.name}
+                      className={classNames(
+                        'px-3 py-2 text-sm cursor-pointer',
+                        'hover:bg-palmkit-elements-background-depth-3',
+                        'text-palmkit-elements-textPrimary',
+                        'outline-none',
+                        provider?.name === providerOption.name || focusedProviderIndex === index
+                          ? 'bg-palmkit-elements-background-depth-2'
+                          : undefined,
+                        focusedProviderIndex === index ? 'ring-1 ring-inset ring-palmkit-elements-focus' : undefined,
+                      )}
+                      onClick={(e) => {
+                        e.stopPropagation();
+
+                        if (setProvider) {
+                          setProvider(providerOption);
+
+                          const firstModel = modelList.find((m) => m.provider === providerOption.name);
+
+                          if (firstModel && setModel) {
+                            setModel(firstModel.name);
+                          }
+                        }
+
+                        setIsProviderDropdownOpen(false);
+                        setProviderSearchQuery('');
+                        setDebouncedProviderSearchQuery('');
+                      }}
+                      tabIndex={focusedProviderIndex === index ? 0 : -1}
+                    >
+                      <div className="flex items-center gap-2">
+                        {LOCAL_PROVIDERS.includes(providerOption.name) && (
+                          <span
+                            className={classNames(
+                              'inline-block w-2 h-2 rounded-full flex-shrink-0',
+                              localProviderStatus[providerOption.name] === 'connected'
+                                ? 'bg-green-500'
+                                : localProviderStatus[providerOption.name] === 'disconnected'
+                                  ? 'bg-red-400'
+                                  : 'bg-palmkit-elements-textTertiary',
+                            )}
+                          />
+                        )}
+                        <span
+                          dangerouslySetInnerHTML={{
+                            __html: (providerOption as any).highlightedName || providerOption.name,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ))
                 )}
               </div>
-            </div>
-
-            <div
-              className={classNames(
-                'max-h-60 overflow-y-auto',
-                'sm:scrollbar-none',
-                '[&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:h-2',
-                '[&::-webkit-scrollbar-thumb]:bg-palmkit-elements-borderColor',
-                '[&::-webkit-scrollbar-thumb]:hover:bg-palmkit-elements-borderColorHover',
-                '[&::-webkit-scrollbar-thumb]:rounded-full',
-                '[&::-webkit-scrollbar-track]:bg-palmkit-elements-background-depth-2',
-                '[&::-webkit-scrollbar-track]:rounded-full',
-                'sm:[&::-webkit-scrollbar]:w-1.5 sm:[&::-webkit-scrollbar]:h-1.5',
-                'sm:hover:[&::-webkit-scrollbar-thumb]:bg-palmkit-elements-borderColor/50',
-                'sm:hover:[&::-webkit-scrollbar-thumb:hover]:bg-palmkit-elements-borderColor',
-                'sm:[&::-webkit-scrollbar-track]:bg-transparent',
-              )}
-            >
-              {filteredProviders.length === 0 ? (
-                <div className="px-3 py-3 text-sm">
-                  <div className="text-palmkit-elements-textTertiary mb-1">
-                    {debouncedProviderSearchQuery
-                      ? `No providers match "${debouncedProviderSearchQuery}"`
-                      : 'No providers found'}
-                  </div>
-                  {debouncedProviderSearchQuery && (
-                    <div className="text-xs text-palmkit-elements-textTertiary">
-                      Try searching for provider names like "OpenAI", "Anthropic", or "Google"
-                    </div>
-                  )}
-                </div>
-              ) : (
-                filteredProviders.map((providerOption, index) => (
-                  <div
-                    ref={(el) => (providerOptionsRef.current[index] = el)}
-                    key={providerOption.name}
-                    role="option"
-                    aria-selected={provider?.name === providerOption.name}
-                    className={classNames(
-                      'px-3 py-2 text-sm cursor-pointer',
-                      'hover:bg-palmkit-elements-background-depth-3',
-                      'text-palmkit-elements-textPrimary',
-                      'outline-none',
-                      provider?.name === providerOption.name || focusedProviderIndex === index
-                        ? 'bg-palmkit-elements-background-depth-2'
-                        : undefined,
-                      focusedProviderIndex === index ? 'ring-1 ring-inset ring-palmkit-elements-focus' : undefined,
-                    )}
-                    onClick={(e) => {
-                      e.stopPropagation();
-
-                      if (setProvider) {
-                        setProvider(providerOption);
-
-                        const firstModel = modelList.find((m) => m.provider === providerOption.name);
-
-                        if (firstModel && setModel) {
-                          setModel(firstModel.name);
-                        }
-                      }
-
-                      setIsProviderDropdownOpen(false);
-                      setProviderSearchQuery('');
-                      setDebouncedProviderSearchQuery('');
-                    }}
-                    tabIndex={focusedProviderIndex === index ? 0 : -1}
-                  >
-                    <div className="flex items-center gap-2">
-                      {LOCAL_PROVIDERS.includes(providerOption.name) && (
-                        <span
-                          className={classNames(
-                            'inline-block w-2 h-2 rounded-full flex-shrink-0',
-                            localProviderStatus[providerOption.name] === 'connected'
-                              ? 'bg-green-500'
-                              : localProviderStatus[providerOption.name] === 'disconnected'
-                                ? 'bg-red-400'
-                                : 'bg-palmkit-elements-textTertiary',
-                          )}
-                        />
-                      )}
-                      <span
-                        dangerouslySetInnerHTML={{
-                          __html: (providerOption as any).highlightedName || providerOption.name,
-                        }}
-                      />
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        )}
+            </div>,
+            document.body,
+          )}
       </div>
 
       {/* Model Combobox */}
-      <div className="relative flex w-full min-w-[70%]" onKeyDown={handleModelKeyDown} ref={modelDropdownRef}>
+      <div className="relative flex w-full min-w-[70%]" onKeyDown={handleModelKeyDown} ref={modelTriggerRef}>
         <div
           className={classNames(
             'w-full p-2 rounded-lg border border-palmkit-elements-borderColor',
@@ -657,10 +717,21 @@ export const ModelSelector = ({
             'transition-all cursor-pointer',
             isModelDropdownOpen ? 'ring-2 ring-palmkit-elements-focus' : undefined,
           )}
-          onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
+          onClick={() => {
+            if (!isModelDropdownOpen && modelTriggerRef.current) {
+              setModelRect(modelTriggerRef.current.getBoundingClientRect());
+            }
+
+            setIsModelDropdownOpen(!isModelDropdownOpen);
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault();
+
+              if (!isModelDropdownOpen && modelTriggerRef.current) {
+                setModelRect(modelTriggerRef.current.getBoundingClientRect());
+              }
+
               setIsModelDropdownOpen(!isModelDropdownOpen);
             }
           }}
@@ -681,200 +752,212 @@ export const ModelSelector = ({
           </div>
         </div>
 
-        {isModelDropdownOpen && (
-          <div
-            className="absolute z-10 w-full mt-1 py-1 rounded-lg border border-palmkit-elements-borderColor bg-palmkit-elements-background-depth-2 shadow-lg"
-            role="listbox"
-            id="model-listbox"
-          >
-            <div className="px-2 pb-2 space-y-2">
-              {/* Free Models Filter Toggle - Only show for OpenRouter */}
-              {provider?.name === 'OpenRouter' && (
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setShowFreeModelsOnly(!showFreeModelsOnly);
-                    }}
-                    className={classNames(
-                      'flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-all',
-                      'hover:bg-palmkit-elements-background-depth-3',
-                      showFreeModelsOnly
-                        ? 'bg-gray-500/20 text-gray-400 border border-gray-500/30'
-                        : 'bg-palmkit-elements-background-depth-3 text-palmkit-elements-textSecondary border border-palmkit-elements-borderColor',
-                    )}
-                  >
-                    <span className="i-ph:gift text-xs" />
-                    Free models only
-                  </button>
-                  {showFreeModelsOnly && (
-                    <span className="text-xs text-palmkit-elements-textTertiary">
-                      {filteredModels.length} free model{filteredModels.length !== 1 ? 's' : ''}
-                    </span>
-                  )}
-                </div>
-              )}
-
-              {/* Search Result Count */}
-              {debouncedModelSearchQuery && filteredModels.length > 0 && (
-                <div className="text-xs text-palmkit-elements-textTertiary px-1">
-                  {filteredModels.length} model{filteredModels.length !== 1 ? 's' : ''} found
-                  {filteredModels.length > 5 && ' (showing best matches)'}
-                </div>
-              )}
-
-              {/* Search Input */}
-              <div className="relative">
-                <input
-                  ref={modelSearchInputRef}
-                  type="text"
-                  value={modelSearchQuery}
-                  onChange={(e) => setModelSearchQuery(e.target.value)}
-                  placeholder="Search models... (⌘K to clear)"
-                  className={classNames(
-                    'w-full pl-8 pr-8 py-1.5 rounded-md text-sm',
-                    'bg-palmkit-elements-background-depth-2 border border-palmkit-elements-borderColor',
-                    'text-palmkit-elements-textPrimary placeholder:text-palmkit-elements-textTertiary',
-                    'focus:outline-none focus:ring-2 focus:ring-palmkit-elements-focus',
-                    'transition-all',
-                  )}
-                  onClick={(e) => e.stopPropagation()}
-                  role="searchbox"
-                  aria-label="Search models"
-                />
-                <div className="absolute left-2.5 top-1/2 -translate-y-1/2">
-                  <span className="i-ph:magnifying-glass text-palmkit-elements-textTertiary" />
-                </div>
-                {modelSearchQuery && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      clearModelSearch();
-                    }}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-palmkit-elements-background-depth-3 transition-colors"
-                    aria-label="Clear search"
-                  >
-                    <span className="i-ph:x text-palmkit-elements-textTertiary text-xs" />
-                  </button>
-                )}
-              </div>
-            </div>
-
+        {isModelDropdownOpen &&
+          modelRect &&
+          createPortal(
             <div
-              className={classNames(
-                'max-h-60 overflow-y-auto',
-                'sm:scrollbar-none',
-                '[&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:h-2',
-                '[&::-webkit-scrollbar-thumb]:bg-palmkit-elements-borderColor',
-                '[&::-webkit-scrollbar-thumb]:hover:bg-palmkit-elements-borderColorHover',
-                '[&::-webkit-scrollbar-thumb]:rounded-full',
-                '[&::-webkit-scrollbar-track]:bg-palmkit-elements-background-depth-2',
-                '[&::-webkit-scrollbar-track]:rounded-full',
-                'sm:[&::-webkit-scrollbar]:w-1.5 sm:[&::-webkit-scrollbar]:h-1.5',
-                'sm:hover:[&::-webkit-scrollbar-thumb]:bg-palmkit-elements-borderColor/50',
-                'sm:hover:[&::-webkit-scrollbar-thumb:hover]:bg-palmkit-elements-borderColor',
-                'sm:[&::-webkit-scrollbar-track]:bg-transparent',
-              )}
+              ref={modelPortalRef}
+              onKeyDown={handleModelKeyDown}
+              style={{
+                position: 'fixed',
+                top: modelRect.bottom + 4,
+                left: modelRect.left,
+                width: modelRect.width,
+                zIndex: 9999,
+              }}
+              className="py-1 rounded-lg border border-palmkit-elements-borderColor bg-palmkit-elements-background-depth-2 shadow-lg"
+              role="listbox"
+              id="model-listbox"
             >
-              {modelLoading === 'all' || modelLoading === provider?.name ? (
-                <div className="px-3 py-3 text-sm">
-                  <div className="flex items-center gap-2 text-palmkit-elements-textTertiary">
-                    <span className="i-ph:spinner animate-spin" />
-                    Loading models...
-                  </div>
-                </div>
-              ) : filteredModels.length === 0 ? (
-                <div className="px-3 py-3 text-sm">
-                  <div className="text-palmkit-elements-textTertiary mb-1">
-                    {debouncedModelSearchQuery
-                      ? `No models match "${debouncedModelSearchQuery}"${showFreeModelsOnly ? ' (free only)' : ''}`
-                      : showFreeModelsOnly
-                        ? 'No free models available'
-                        : provider?.name && LOCAL_PROVIDERS.includes(provider.name)
-                          ? `No models found — is ${provider.name} running?`
-                          : 'No models available'}
-                  </div>
-                  {!debouncedModelSearchQuery && provider?.name && LOCAL_PROVIDERS.includes(provider.name) && (
-                    <div className="text-xs text-palmkit-elements-textTertiary mt-1">
-                      Make sure {provider.name} is running and has at least one model loaded.
-                      {provider.name === 'Ollama' && ' Try: ollama pull llama3.2'}
-                      {provider.name === 'LMStudio' && ' Load a model in LM Studio first.'}
-                    </div>
-                  )}
-                  {debouncedModelSearchQuery && (
-                    <div className="text-xs text-palmkit-elements-textTertiary">
-                      Try searching for model names, context sizes (e.g., "128k", "1M"), or capabilities
-                    </div>
-                  )}
-                  {showFreeModelsOnly && !debouncedModelSearchQuery && (
-                    <div className="text-xs text-palmkit-elements-textTertiary">
-                      Try disabling the "Free models only" filter to see all available models
-                    </div>
-                  )}
-                </div>
-              ) : (
-                filteredModels.map((modelOption, index) => (
-                  <div
-                    ref={(el) => (modelOptionsRef.current[index] = el)}
-                    key={modelOption.name}
-                    role="option"
-                    aria-selected={model === modelOption.name}
-                    className={classNames(
-                      'px-3 py-2 text-sm cursor-pointer',
-                      'hover:bg-palmkit-elements-background-depth-3',
-                      'text-palmkit-elements-textPrimary',
-                      'outline-none',
-                      model === modelOption.name || focusedModelIndex === index
-                        ? 'bg-palmkit-elements-background-depth-2'
-                        : undefined,
-                      focusedModelIndex === index ? 'ring-1 ring-inset ring-palmkit-elements-focus' : undefined,
+              <div className="px-2 pb-2 space-y-2">
+                {/* Free Models Filter Toggle - Only show for OpenRouter */}
+                {provider?.name === 'OpenRouter' && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowFreeModelsOnly(!showFreeModelsOnly);
+                      }}
+                      className={classNames(
+                        'flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-all',
+                        'hover:bg-palmkit-elements-background-depth-3',
+                        showFreeModelsOnly
+                          ? 'bg-gray-500/20 text-gray-400 border border-gray-500/30'
+                          : 'bg-palmkit-elements-background-depth-3 text-palmkit-elements-textSecondary border border-palmkit-elements-borderColor',
+                      )}
+                    >
+                      <span className="i-ph:gift text-xs" />
+                      Free models only
+                    </button>
+                    {showFreeModelsOnly && (
+                      <span className="text-xs text-palmkit-elements-textTertiary">
+                        {filteredModels.length} free model{filteredModels.length !== 1 ? 's' : ''}
+                      </span>
                     )}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setModel?.(modelOption.name);
-                      setIsModelDropdownOpen(false);
-                      setModelSearchQuery('');
-                      setDebouncedModelSearchQuery('');
-                    }}
-                    tabIndex={focusedModelIndex === index ? 0 : -1}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1 min-w-0">
-                        <div className="truncate">
-                          <span
-                            dangerouslySetInnerHTML={{
-                              __html: (modelOption as any).highlightedLabel || modelOption.label,
-                            }}
-                          />
-                        </div>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <span className="text-xs text-palmkit-elements-textTertiary">
-                            {formatContextSize(modelOption.maxTokenAllowed)} tokens
-                          </span>
-                          {debouncedModelSearchQuery && (modelOption as any).searchScore > 70 && (
-                            <span className="text-xs text-green-500 font-medium">
-                              {(modelOption as any).searchScore.toFixed(0)}% match
+                  </div>
+                )}
+
+                {/* Search Result Count */}
+                {debouncedModelSearchQuery && filteredModels.length > 0 && (
+                  <div className="text-xs text-palmkit-elements-textTertiary px-1">
+                    {filteredModels.length} model{filteredModels.length !== 1 ? 's' : ''} found
+                    {filteredModels.length > 5 && ' (showing best matches)'}
+                  </div>
+                )}
+
+                {/* Search Input */}
+                <div className="relative">
+                  <input
+                    ref={modelSearchInputRef}
+                    type="text"
+                    value={modelSearchQuery}
+                    onChange={(e) => setModelSearchQuery(e.target.value)}
+                    placeholder="Search models... (⌘K to clear)"
+                    className={classNames(
+                      'w-full pl-8 pr-8 py-1.5 rounded-md text-sm',
+                      'bg-palmkit-elements-background-depth-2 border border-palmkit-elements-borderColor',
+                      'text-palmkit-elements-textPrimary placeholder:text-palmkit-elements-textTertiary',
+                      'focus:outline-none focus:ring-2 focus:ring-palmkit-elements-focus',
+                      'transition-all',
+                    )}
+                    onClick={(e) => e.stopPropagation()}
+                    role="searchbox"
+                    aria-label="Search models"
+                  />
+                  <div className="absolute left-2.5 top-1/2 -translate-y-1/2">
+                    <span className="i-ph:magnifying-glass text-palmkit-elements-textTertiary" />
+                  </div>
+                  {modelSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        clearModelSearch();
+                      }}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-palmkit-elements-background-depth-3 transition-colors"
+                      aria-label="Clear search"
+                    >
+                      <span className="i-ph:x text-palmkit-elements-textTertiary text-xs" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div
+                className={classNames(
+                  'max-h-60 overflow-y-auto',
+                  'sm:scrollbar-none',
+                  '[&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:h-2',
+                  '[&::-webkit-scrollbar-thumb]:bg-palmkit-elements-borderColor',
+                  '[&::-webkit-scrollbar-thumb]:hover:bg-palmkit-elements-borderColorHover',
+                  '[&::-webkit-scrollbar-thumb]:rounded-full',
+                  '[&::-webkit-scrollbar-track]:bg-palmkit-elements-background-depth-2',
+                  '[&::-webkit-scrollbar-track]:rounded-full',
+                  'sm:[&::-webkit-scrollbar]:w-1.5 sm:[&::-webkit-scrollbar]:h-1.5',
+                  'sm:hover:[&::-webkit-scrollbar-thumb]:bg-palmkit-elements-borderColor/50',
+                  'sm:hover:[&::-webkit-scrollbar-thumb:hover]:bg-palmkit-elements-borderColor',
+                  'sm:[&::-webkit-scrollbar-track]:bg-transparent',
+                )}
+              >
+                {modelLoading === 'all' || modelLoading === provider?.name ? (
+                  <div className="px-3 py-3 text-sm">
+                    <div className="flex items-center gap-2 text-palmkit-elements-textTertiary">
+                      <span className="i-ph:spinner animate-spin" />
+                      Loading models...
+                    </div>
+                  </div>
+                ) : filteredModels.length === 0 ? (
+                  <div className="px-3 py-3 text-sm">
+                    <div className="text-palmkit-elements-textTertiary mb-1">
+                      {debouncedModelSearchQuery
+                        ? `No models match "${debouncedModelSearchQuery}"${showFreeModelsOnly ? ' (free only)' : ''}`
+                        : showFreeModelsOnly
+                          ? 'No free models available'
+                          : provider?.name && LOCAL_PROVIDERS.includes(provider.name)
+                            ? `No models found — is ${provider.name} running?`
+                            : 'No models available'}
+                    </div>
+                    {!debouncedModelSearchQuery && provider?.name && LOCAL_PROVIDERS.includes(provider.name) && (
+                      <div className="text-xs text-palmkit-elements-textTertiary mt-1">
+                        Make sure {provider.name} is running and has at least one model loaded.
+                        {provider.name === 'Ollama' && ' Try: ollama pull llama3.2'}
+                        {provider.name === 'LMStudio' && ' Load a model in LM Studio first.'}
+                      </div>
+                    )}
+                    {debouncedModelSearchQuery && (
+                      <div className="text-xs text-palmkit-elements-textTertiary">
+                        Try searching for model names, context sizes (e.g., "128k", "1M"), or capabilities
+                      </div>
+                    )}
+                    {showFreeModelsOnly && !debouncedModelSearchQuery && (
+                      <div className="text-xs text-palmkit-elements-textTertiary">
+                        Try disabling the "Free models only" filter to see all available models
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  filteredModels.map((modelOption, index) => (
+                    <div
+                      ref={(el) => (modelOptionsRef.current[index] = el)}
+                      key={modelOption.name}
+                      role="option"
+                      aria-selected={model === modelOption.name}
+                      className={classNames(
+                        'px-3 py-2 text-sm cursor-pointer',
+                        'hover:bg-palmkit-elements-background-depth-3',
+                        'text-palmkit-elements-textPrimary',
+                        'outline-none',
+                        model === modelOption.name || focusedModelIndex === index
+                          ? 'bg-palmkit-elements-background-depth-2'
+                          : undefined,
+                        focusedModelIndex === index ? 'ring-1 ring-inset ring-palmkit-elements-focus' : undefined,
+                      )}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setModel?.(modelOption.name);
+                        setIsModelDropdownOpen(false);
+                        setModelSearchQuery('');
+                        setDebouncedModelSearchQuery('');
+                      }}
+                      tabIndex={focusedModelIndex === index ? 0 : -1}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1 min-w-0">
+                          <div className="truncate">
+                            <span
+                              dangerouslySetInnerHTML={{
+                                __html: (modelOption as any).highlightedLabel || modelOption.label,
+                              }}
+                            />
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-xs text-palmkit-elements-textTertiary">
+                              {formatContextSize(modelOption.maxTokenAllowed)} tokens
                             </span>
+                            {debouncedModelSearchQuery && (modelOption as any).searchScore > 70 && (
+                              <span className="text-xs text-green-500 font-medium">
+                                {(modelOption as any).searchScore.toFixed(0)}% match
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 ml-2">
+                          {isModelLikelyFree(modelOption, provider?.name) && (
+                            <span className="i-ph:gift text-xs text-gray-400" title="Free model" />
+                          )}
+                          {model === modelOption.name && (
+                            <span className="i-ph:check text-xs text-green-500" title="Selected" />
                           )}
                         </div>
                       </div>
-                      <div className="flex items-center gap-1 ml-2">
-                        {isModelLikelyFree(modelOption, provider?.name) && (
-                          <span className="i-ph:gift text-xs text-gray-400" title="Free model" />
-                        )}
-                        {model === modelOption.name && (
-                          <span className="i-ph:check text-xs text-green-500" title="Selected" />
-                        )}
-                      </div>
                     </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        )}
+                  ))
+                )}
+              </div>
+            </div>,
+            document.body,
+          )}
       </div>
     </div>
   );
