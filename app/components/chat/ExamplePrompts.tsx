@@ -139,7 +139,11 @@ const CATEGORIES = [
 
 type Category = (typeof CATEGORIES)[number]['key'];
 
-export function ExamplePrompts(sendMessage?: { (event: React.UIEvent, messageInput?: string): void | undefined }) {
+export function ExamplePrompts({
+  sendMessage,
+}: {
+  sendMessage?: (event: React.UIEvent, messageInput?: string) => void;
+}) {
   const [activeCategory, setActiveCategory] = useState<Category>('all');
 
   const filtered =
