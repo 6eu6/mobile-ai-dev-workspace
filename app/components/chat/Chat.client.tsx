@@ -364,11 +364,34 @@ export const ChatImpl = memo(
             return prev;
           }
 
-          const fileCount = extWorkerState.files.length;
-          const newContent =
-            extWorkerState.status === 'ready_for_preview'
-              ? `✅ Build complete — ${fileCount} file${fileCount !== 1 ? 's' : ''} generated. Switch to the **Preview** tab to see your project.`
-              : `❌ Build failed: ${extWorkerState.error ?? 'Unknown error'}`;
+          let newContent: string;
+
+          if (extWorkerState.status === 'failed_clean') {
+            newContent = `❌ Build failed: ${extWorkerState.error ?? 'Unknown error'}`;
+          } else {
+            const fileCount = extWorkerState.files.length;
+            const fileEvents = extWorkerState.events.filter((e) => e.type === 'file_written');
+            const fileLines = fileEvents
+              .map((e) => {
+                const path = e.payload?.filePath as string | undefined;
+                const lines = e.payload?.lineCount as number | undefined;
+
+                if (!path) {
+                  return null;
+                }
+
+                const pad = Math.max(0, 40 - path.length);
+
+                return `\`+${path}\`${' '.repeat(pad)}${lines != null ? `${lines} lines` : ''}`;
+              })
+              .filter(Boolean)
+              .join('\n');
+
+            newContent =
+              `✅ **Build complete** — ${fileCount} file${fileCount !== 1 ? 's' : ''} generated\n\n` +
+              (fileLines ? `${fileLines}\n\n` : '') +
+              `Switch to the **Preview** tab to see your project.`;
+          }
 
           return [...prev.slice(0, -1), { ...last, content: newContent }];
         });
