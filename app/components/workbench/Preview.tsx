@@ -11,7 +11,7 @@ import { canShowPreview, buildStatusMessage, buildStatusStore, previewFilesStore
 import { useWorkerSandbox } from '~/lib/hooks/use-worker-sandbox';
 import type { ElementInfo } from './Inspector';
 import { InspectorPanel } from './InspectorPanel';
-import { pendingEditPromptStore } from '~/lib/stores/inspector';
+import { pendingEditPromptStore, type QueuedEdit } from '~/lib/stores/inspector';
 import inspectorScript from '/public/inspector-script.js?raw';
 
 type ResizeSide = 'left' | 'right' | null;
@@ -153,6 +153,7 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [isInspectorMode, setIsInspectorMode] = useState(false);
   const [selectedPanelElement, setSelectedPanelElement] = useState<ElementInfo | null>(null);
+  const [queuedEdits, setQueuedEdits] = useState<QueuedEdit[]>([]);
   const [isDeviceModeOn, setIsDeviceModeOn] = useState(false);
   const [widthPercent, setWidthPercent] = useState<number>(37.5);
   const [currentWidth, setCurrentWidth] = useState<number>(0);
@@ -720,18 +721,23 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
     const handleMessage = (event: MessageEvent) => {
       if (event.data.type === 'INSPECTOR_READY') {
         if (iframeRef.current?.contentWindow) {
-          iframeRef.current.contentWindow.postMessage(
-            {
-              type: 'INSPECTOR_ACTIVATE',
-              active: isInspectorMode,
-            },
-            '*',
-          );
+          iframeRef.current.contentWindow.postMessage({ type: 'INSPECTOR_ACTIVATE', active: isInspectorMode }, '*');
         }
       } else if (event.data.type === 'INSPECTOR_CLICK') {
+        /*
+         * "panel →" button inside tooltip sends INSPECTOR_OPEN_PANEL;
+         * legacy INSPECTOR_CLICK still opens the InspectorPanel
+         */
         const element = event.data.elementInfo as ElementInfo;
         setSelectedPanelElement(element);
         setSelectedElement?.(element);
+      } else if (event.data.type === 'INSPECTOR_OPEN_PANEL') {
+        const element = event.data.elementInfo as ElementInfo;
+        setSelectedPanelElement(element);
+        setSelectedElement?.(element);
+      } else if (event.data.type === 'INSPECTOR_EDIT_QUEUED') {
+        const edit = event.data.edit as QueuedEdit;
+        setQueuedEdits((prev) => [...prev, edit]);
       }
     };
 
@@ -747,18 +753,46 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
     if (!newInspectorMode) {
       setSelectedPanelElement(null);
       setSelectedElement?.(null);
+      setQueuedEdits([]);
       iframeRef.current?.contentWindow?.postMessage({ type: 'INSPECTOR_CLEAR_SELECTION' }, '*');
+      iframeRef.current?.contentWindow?.postMessage({ type: 'INSPECTOR_QUEUE_RESET' }, '*');
     }
 
     if (iframeRef.current?.contentWindow) {
-      iframeRef.current.contentWindow.postMessage(
-        {
-          type: 'INSPECTOR_ACTIVATE',
-          active: newInspectorMode,
-        },
-        '*',
-      );
+      iframeRef.current.contentWindow.postMessage({ type: 'INSPECTOR_ACTIVATE', active: newInspectorMode }, '*');
     }
+  };
+
+  const buildQueuePrompt = (edits: QueuedEdit[]): string => {
+    const items = edits.map((e, i) => {
+      const path = e.path ? ` (${e.path})` : '';
+      let attachNote = '';
+
+      if (e.attachment) {
+        const kb = Math.round(e.attachment.size / 1024);
+        const { name, type, dataUrl, textContent } = e.attachment;
+
+        if (type?.startsWith('video/')) {
+          attachNote = `\n   📎 VIDEO "${name}" (${kb}KB) → embed as <video autoplay muted loop playsinline style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0"> and wrap parent in position:relative`;
+        } else if (textContent && (type?.includes('svg') || name?.endsWith('.svg'))) {
+          attachNote = `\n   📎 SVG "${name}" → inline this SVG:\n   ${textContent.trim().substring(0, 500)}`;
+        } else if (dataUrl && type?.startsWith('image/')) {
+          attachNote = `\n   📎 IMAGE "${name}" (${kb}KB) → use as img src: ${dataUrl.substring(0, 120)}...`;
+        } else if (name?.match(/\.(ttf|woff|woff2|otf)$/i)) {
+          const fontName = name.replace(/\.(ttf|woff|woff2|otf)$/i, '');
+          attachNote = `\n   📎 FONT "${fontName}" → declare @font-face and apply to this element`;
+        } else if (type?.startsWith('image/')) {
+          attachNote = `\n   📎 IMAGE "${name}" (${kb}KB) → use descriptive placeholder or ask user to provide URL`;
+        }
+      }
+
+      return `${i + 1}. \`${e.selector}\`${path}\n   ${e.instruction}${attachNote}`;
+    });
+
+    return [
+      'Apply these visual edits exactly. Modify ONLY the listed elements, keep all other code unchanged.\n',
+      ...items,
+    ].join('\n');
   };
 
   return (
@@ -1131,6 +1165,38 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
                     iframeRef.current?.contentWindow?.postMessage({ type: 'INSPECTOR_ACTIVATE', active: false }, '*');
                   }}
                 />
+              )}
+              {isInspectorMode && queuedEdits.length > 0 && (
+                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 z-50">
+                  <button
+                    onClick={() => {
+                      const prompt = buildQueuePrompt(queuedEdits);
+                      pendingEditPromptStore.set(prompt);
+                      setQueuedEdits([]);
+                      iframeRef.current?.contentWindow?.postMessage({ type: 'INSPECTOR_QUEUE_RESET' }, '*');
+                    }}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold shadow-xl
+                      bg-blue-600 hover:bg-blue-500 text-white border border-blue-400/30
+                      active:scale-95 transition-all duration-150"
+                    style={{ boxShadow: '0 4px 24px rgba(37,99,235,0.5)' }}
+                  >
+                    <div className="i-ph:check-circle text-base" />
+                    Apply Edit ({queuedEdits.length})
+                  </button>
+                  <button
+                    onClick={() => {
+                      setQueuedEdits([]);
+                      iframeRef.current?.contentWindow?.postMessage({ type: 'INSPECTOR_QUEUE_RESET' }, '*');
+                    }}
+                    className="flex items-center justify-center w-9 h-9 rounded-xl text-sm
+                      bg-palmkit-elements-background-depth-3 hover:bg-palmkit-elements-background-depth-4
+                      text-palmkit-elements-textTertiary border border-palmkit-elements-borderColor
+                      active:scale-95 transition-all duration-150"
+                    title="Clear queue"
+                  >
+                    <div className="i-ph:x text-sm" />
+                  </button>
+                </div>
               )}
             </>
           ) : (

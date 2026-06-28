@@ -1,7 +1,17 @@
 import { atom } from 'nanostores';
 
-/*
- * When InspectorPanel generates an edit prompt, it's written here.
- * Chat.client.tsx watches it and applies to setInput.
- */
 export const pendingEditPromptStore = atom<string | null>(null);
+
+export interface QueuedEdit {
+  selector: string;
+  path: string;
+  tagName: string;
+  instruction: string;
+  attachment: {
+    name: string;
+    type: string;
+    size: number;
+    dataUrl?: string;
+    textContent?: string;
+  } | null;
+}
