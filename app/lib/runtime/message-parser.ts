@@ -284,8 +284,9 @@ export class StreamingMessageParser {
               const artifactTitle = this.#extractAttribute(artifactTag, 'title') as string;
               const type = this.#extractAttribute(artifactTag, 'type') as string;
 
-              // const artifactId = this.#extractAttribute(artifactTag, 'id') as string;
-              const artifactId = `${messageId}-${state.artifactCounter++}`;
+              const extractedId = this.#extractAttribute(artifactTag, 'id') as string;
+              const artifactId = extractedId || `${messageId}-${state.artifactCounter}`;
+              state.artifactCounter++;
 
               if (!artifactTitle) {
                 logger.warn('Artifact title missing');
