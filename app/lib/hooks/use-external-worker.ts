@@ -71,7 +71,7 @@ export function getExternalWorkerFlag(): boolean {
 
   const stored = localStorage.getItem(FLAG_KEY);
 
-  return stored !== 'false'; // true by default; false only if explicitly disabled
+  return stored === 'true'; // false by default; true only if explicitly enabled
 }
 
 export function setExternalWorkerFlag(enabled: boolean): void {

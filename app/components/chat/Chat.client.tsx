@@ -98,6 +98,62 @@ const processSampledMessages = createSampler(
   50,
 );
 
+/** Build the assistant message content from Oracle-worker events — creates a streaming-like experience. */
+function buildWorkerStreamContent(state: import('~/lib/hooks/use-external-worker').ExternalWorkerState): string {
+  if (state.status === 'failed_clean') {
+    return `❌ **Build failed**\n\n${state.error ?? 'Unknown error'}`;
+  }
+
+  const lines: string[] = [];
+  const isDone = state.status === 'ready_for_preview';
+
+  lines.push(
+    isDone
+      ? `✅ **Build complete** — ${state.files.length} file${state.files.length !== 1 ? 's' : ''} generated`
+      : '🔨 **Building your project...**',
+  );
+
+  for (const event of state.events) {
+    switch (event.type) {
+      case 'planning_started':
+        lines.push('', '📋 Planning app structure...');
+        break;
+      case 'planning_completed':
+        lines.push('✓ Plan ready');
+        break;
+      case 'file_generation_started':
+        lines.push('', '⚙️ Generating files...');
+        break;
+      case 'file_written': {
+        const path = event.payload?.filePath as string | undefined;
+        const lc = event.payload?.lineCount as number | undefined;
+
+        if (path) {
+          lines.push(`  \`+${path}\`${lc != null ? `  (${lc} lines)` : ''}`);
+        }
+
+        break;
+      }
+      case 'build_check_started':
+        lines.push('', '🔧 Verifying build...');
+        break;
+      case 'build_check_passed':
+        lines.push('✓ Build verified');
+        break;
+      case 'ready_for_preview':
+        lines.push('', 'Switch to the **Preview** tab to see your project.');
+        break;
+      case 'job_failed':
+        lines.push('', `❌ ${event.message}`);
+        break;
+      default:
+        break;
+    }
+  }
+
+  return lines.join('\n');
+}
+
 interface ChatProps {
   initialMessages: Message[];
   storeMessageHistory: (messages: Message[]) => Promise<void>;
@@ -349,8 +405,12 @@ export const ChatImpl = memo(
         setCurrentJobId(extWorkerState.jobId);
       }
 
-      /* Update the placeholder assistant message once the build finishes */
-      if (extWorkerState.status === 'ready_for_preview' || extWorkerState.status === 'failed_clean') {
+      /* Live-stream Oracle worker events into the assistant message on every poll */
+      if (
+        extWorkerState.events.length > 0 ||
+        extWorkerState.status === 'failed_clean' ||
+        extWorkerState.status === 'ready_for_preview'
+      ) {
         setMessages((prev) => {
           const last = prev[prev.length - 1];
 
@@ -358,39 +418,20 @@ export const ChatImpl = memo(
             return prev;
           }
 
-          const isPlaceholder = last.content === '⚡ Building project…' || last.content === '⚡ Editing project…';
+          const isWorkerMessage =
+            last.content.startsWith('⚡') ||
+            last.content.startsWith('🔨') ||
+            last.content.startsWith('✅') ||
+            last.content.startsWith('❌');
 
-          if (!isPlaceholder) {
+          if (!isWorkerMessage) {
             return prev;
           }
 
-          let newContent: string;
+          const newContent = buildWorkerStreamContent(extWorkerState);
 
-          if (extWorkerState.status === 'failed_clean') {
-            newContent = `❌ Build failed: ${extWorkerState.error ?? 'Unknown error'}`;
-          } else {
-            const fileCount = extWorkerState.files.length;
-            const fileEvents = extWorkerState.events.filter((e) => e.type === 'file_written');
-            const fileLines = fileEvents
-              .map((e) => {
-                const path = e.payload?.filePath as string | undefined;
-                const lines = e.payload?.lineCount as number | undefined;
-
-                if (!path) {
-                  return null;
-                }
-
-                const pad = Math.max(0, 40 - path.length);
-
-                return `\`+${path}\`${' '.repeat(pad)}${lines != null ? `${lines} lines` : ''}`;
-              })
-              .filter(Boolean)
-              .join('\n');
-
-            newContent =
-              `✅ **Build complete** — ${fileCount} file${fileCount !== 1 ? 's' : ''} generated\n\n` +
-              (fileLines ? `${fileLines}\n\n` : '') +
-              `Switch to the **Preview** tab to see your project.`;
+          if (newContent === last.content) {
+            return prev;
           }
 
           return [...prev.slice(0, -1), { ...last, content: newContent }];
