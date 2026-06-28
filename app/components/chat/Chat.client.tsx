@@ -5,6 +5,7 @@ import { useAnimate } from 'framer-motion';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'react-toastify';
 import { useMessageParser, usePromptEnhancer, useShortcuts, finalizeMessageParser } from '~/lib/hooks';
+import { CONTINUE_PROMPT } from '~/lib/common/prompts/prompts';
 import { description, useChatHistory } from '~/lib/persistence';
 import { chatStore } from '~/lib/stores/chat';
 import { workbenchStore } from '~/lib/stores/workbench';
@@ -1019,6 +1020,22 @@ export const ChatImpl = memo(
       [input, handleInputChange],
     );
 
+    /*
+     * Detect if the last assistant message has an open artifact tag but no closing tag —
+     * indicates the stream was cut off (network drop, page refresh during streaming).
+     */
+    const lastMsg = messages[messages.length - 1];
+    const isInterruptedGeneration =
+      !externalWorkerEnabled &&
+      !isLoading &&
+      !fakeLoading &&
+      chatStarted &&
+      messages.length > 0 &&
+      lastMsg?.role === 'assistant' &&
+      typeof lastMsg.content === 'string' &&
+      lastMsg.content.includes('<palmkitArtifact') &&
+      !lastMsg.content.includes('</palmkitArtifact');
+
     return (
       <>
         {/* Desktop only — on mobile the unified bottom status bar (RemotePreviewTrigger) owns status. */}
@@ -1096,6 +1113,10 @@ export const ChatImpl = memo(
           addToolResult={addToolResult}
           onWebSearchResult={handleWebSearchResult}
           onOpenProjectList={onOpenProjectList}
+          isInterruptedGeneration={isInterruptedGeneration}
+          onResumeGeneration={() => {
+            append({ role: 'user', content: CONTINUE_PROMPT });
+          }}
         />
       </>
     );

@@ -595,14 +595,19 @@ ${value.content}
 
       messages = messages.filter((m) => !m.annotations?.includes('no-store'));
 
-      // FIX #1: Create chatId immediately on first message
+      /*
+       * Create chatId on first message — but do NOT navigate yet.
+       * URL changes only after setMessages() below so that if the user
+       * refreshes during the async gap, IndexedDB already has the data
+       * and useChatHistory won't redirect them back to "/".
+       */
       if (!chatId.get()) {
         const nextId = await getNextId(db);
         chatId.set(nextId);
-        navigateChat(nextId);
       }
 
       let _urlId = urlId;
+      let shouldNavigateTo: string | null = null;
 
       if (!urlId) {
         const firstUserMessage = messages.find((m) => m.role === 'user');
@@ -610,8 +615,9 @@ ${value.content}
 
         const newUrlId = await getUrlId(db, artifactId);
         _urlId = newUrlId;
-        navigateChat(newUrlId);
-        setUrlId(newUrlId);
+        shouldNavigateTo = newUrlId;
+
+        // Don't setUrlId or navigate yet — wait until after IndexedDB write
       }
 
       let chatSummary: string | undefined = undefined;
@@ -688,6 +694,16 @@ ${value.content}
           undefined,
           chatMetadata.get(),
         );
+
+        /*
+         * Navigate AFTER the IndexedDB write completes. This prevents the race
+         * condition where the URL shows /chat/abc but the data isn't in IndexedDB
+         * yet — which caused useChatHistory to redirect to "/" on refresh.
+         */
+        if (shouldNavigateTo) {
+          navigateChat(shouldNavigateTo);
+          setUrlId(shouldNavigateTo);
+        }
 
         // Mirror to the account (best-effort) so work follows the user across devices.
         if (_urlId) {

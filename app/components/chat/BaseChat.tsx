@@ -91,6 +91,8 @@ interface BaseChatProps {
   addToolResult?: ({ toolCallId, result }: { toolCallId: string; result: any }) => void;
   onWebSearchResult?: (result: string) => void;
   onOpenProjectList?: () => void;
+  isInterruptedGeneration?: boolean;
+  onResumeGeneration?: () => void;
 }
 
 export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
@@ -141,6 +143,8 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
       },
       onWebSearchResult,
       onOpenProjectList: _onOpenProjectList,
+      isInterruptedGeneration,
+      onResumeGeneration,
     },
     ref,
   ) => {
@@ -449,6 +453,21 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                 </div>
                 {progressAnnotations && <ProgressCompilation data={progressAnnotations} />}
                 <WorkerProgress />
+                {isInterruptedGeneration && (
+                  <div className="flex items-center justify-between gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm">
+                    <div className="flex items-center gap-2">
+                      <div className="i-ph:warning-circle text-[16px] text-amber-500 shrink-0" />
+                      <span className="text-palmkit-elements-textSecondary">Generation was interrupted</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onResumeGeneration?.()}
+                      className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium bg-palmkit-elements-button-primary-background text-palmkit-elements-button-primary-text hover:opacity-90 transition-opacity active:scale-95"
+                    >
+                      Resume
+                    </button>
+                  </div>
+                )}
                 <ChatBox
                   isModelSettingsCollapsed={isModelSettingsCollapsed}
                   setIsModelSettingsCollapsed={setIsModelSettingsCollapsed}
