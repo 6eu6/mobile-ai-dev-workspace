@@ -6,7 +6,7 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'react-toastify';
 import { useMessageParser, usePromptEnhancer, useShortcuts, finalizeMessageParser } from '~/lib/hooks';
 import { CONTINUE_PROMPT } from '~/lib/common/prompts/prompts';
-import { description, useChatHistory } from '~/lib/persistence';
+import { description, useChatHistory, chatMetadata } from '~/lib/persistence';
 import { chatStore } from '~/lib/stores/chat';
 import { workbenchStore } from '~/lib/stores/workbench';
 import {
@@ -401,9 +401,23 @@ export const ChatImpl = memo(
       /* Phase 10: sync real progress percentage + current step */
       setWorkerProgress(extWorkerState.progress, extWorkerState.currentStep);
 
-      /* Phase 8: track job ID for ZIP export */
+      /* Phase 8: track job ID for ZIP export + persist to chat metadata for restore-on-reload */
       if (extWorkerState.status === 'ready_for_preview' && extWorkerState.jobId) {
         setCurrentJobId(extWorkerState.jobId);
+
+        /*
+         * Persist jobId to chat metadata so preview can be restored on page reload.
+         * Without this, reload loses the job reference and the user sees "No preview available".
+         */
+        const currentMetadata = chatMetadata.get();
+
+        if (currentMetadata?.palmkitJobId !== extWorkerState.jobId) {
+          chatMetadata.set({
+            ...currentMetadata,
+            gitUrl: currentMetadata?.gitUrl ?? '',
+            palmkitJobId: extWorkerState.jobId,
+          });
+        }
       }
 
       /* Live-stream Oracle worker events into the assistant message on every poll */

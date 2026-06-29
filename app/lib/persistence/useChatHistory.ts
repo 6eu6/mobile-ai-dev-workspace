@@ -601,6 +601,63 @@ ${value.content}
            * window, the overlay never showed — make sure isRestoring is false.
            */
           suppressOverlayIfFast();
+
+          /*
+           * BUG FIX (2026-06-29): Restore worker-built files from R2 on page reload.
+           *
+           * When using the external worker path, files are stored in R2 (not in the
+           * IndexedDB snapshot). On page reload, previewFilesStore was empty, so the
+           * user saw "No preview available" even though files existed in R2.
+           *
+           * Now: if chat metadata has palmkitJobId, fetch files from R2 via /api/files
+           * and populate previewFilesStore + workbenchStore so the preview renders.
+           */
+          const storedMeta = storedMessages?.metadata as { palmkitJobId?: string } | undefined;
+          const jobId = storedMeta?.palmkitJobId;
+
+          if (jobId) {
+            try {
+              // Fetch the file manifest from /api/jobs (gives us the file list)
+              const jobResp = await fetch(`/api/jobs?id=${jobId}`);
+              const jobData = (await jobResp.json()) as { files?: Array<{ path: string }>; status?: string };
+
+              if (jobData.status === 'ready_for_preview' && Array.isArray(jobData.files) && jobData.files.length > 0) {
+                const previewFiles: Record<string, string> = {};
+
+                for (const f of jobData.files) {
+                  try {
+                    const fileResp = await fetch(`/api/files?jobId=${jobId}&path=${encodeURIComponent(f.path)}`);
+
+                    if (fileResp.ok) {
+                      previewFiles[f.path] = await fileResp.text();
+                    }
+                  } catch {
+                    // skip individual file errors
+                  }
+                }
+
+                if (Object.keys(previewFiles).length > 0) {
+                  // Populate the preview files store so the blob URL preview renders.
+                  const { setPreviewFiles } = await import('~/lib/stores/build-status');
+                  setPreviewFiles(previewFiles);
+
+                  // Also populate the workbench files so the code editor shows them.
+                  const fileMap: Record<string, { type: 'file'; content: string; isBinary?: boolean }> = {};
+
+                  for (const [path, content] of Object.entries(previewFiles)) {
+                    fileMap[path] = { type: 'file', content };
+                  }
+                  workbenchStore.files.set(fileMap as any);
+
+                  console.log(
+                    `[Palmkit] Restored ${Object.keys(previewFiles).length} file(s) from R2 for job ${jobId}`,
+                  );
+                }
+              }
+            } catch (e) {
+              console.warn('[Palmkit] Failed to restore worker files from R2:', e);
+            }
+          }
         })
         .catch((error) => {
           console.error(error);

@@ -7,6 +7,9 @@ export interface IChatMetadata {
   gitUrl: string;
   gitBranch?: string;
   netlifySiteId?: string;
+
+  /** Palmkit worker job ID (for restoring external-worker builds on reload). */
+  palmkitJobId?: string;
 }
 
 const logger = createScopedLogger('ChatHistory');
