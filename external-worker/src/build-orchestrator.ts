@@ -94,86 +94,161 @@ OUTPUT FORMAT — return ONLY valid JSON, no markdown, no explanation:
 EXAMPLE for "Build a landing page with hero and features":
 {"reasoning":"Single HTML file with CDN scripts, built incrementally","tasks":[{"id":1,"name":"HTML shell + CDN scripts","file":"index.html","description":"Create index.html with: DOCTYPE, html, head with Tailwind CDN script, React 18 CDN, Babel standalone, Google Fonts links, title, and body with #root div and empty script type=text/babel"},{"id":2,"name":"CSS utilities + base styles","file":"index.html","description":"Add a style block in head with: body background #000, custom CSS classes like .liquid-glass with backdrop-filter blur, .liquid-glass-strong, gradient borders via ::before with mask-composite, font-family setup"},{"id":3,"name":"Video component","file":"index.html","description":"Add a FadingVideo React component: wraps video element, uses requestAnimationFrame for crossfade, handles loadeddata/timeupdate/ended events, manual looping"},{"id":4,"name":"Navbar + Hero section","file":"index.html","description":"Add Navbar component (fixed top, liquid-glass pill, links) and Hero component (badge, headline, subheading, CTAs, stats cards)"},{"id":5,"name":"Features + Partners + Assembly","file":"index.html","description":"Add Features section (3 cards with icons) and Partners row (5 names). Then add App component that renders all sections, and ReactDOM.render to mount"}]}`;
 
-  const result = await generateText({
-    model,
-    system: systemPrompt,
-    prompt: `Break this build request into 5-8 tasks. Return ONLY JSON:\n\n${prompt}`,
-    maxTokens: 3000,
-    temperature: 0.2,
-  });
+  // RETRY LOGIC: try up to 3 times to get valid JSON from the decomposer
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const result = await generateText({
+      model,
+      system: systemPrompt + (attempt > 1 ? `\n\nPREVIOUS ATTEMPT FAILED. Return ONLY valid JSON this time. No markdown, no explanation, no code fences. Start with { and end with }.` : ''),
+      prompt: `Break this build request into 5-8 tasks. Return ONLY JSON:\n\n${prompt}`,
+      maxTokens: 3000,
+      temperature: attempt === 1 ? 0.2 : 0.5, // increase temperature on retry for variety
+    });
 
-  const rawText = result.text ?? '';
-  logger.info(`[orchestrator] Decompose response: ${rawText.length} chars`);
+    const rawText = result.text ?? '';
+    logger.info(`[orchestrator] Decompose attempt ${attempt}: ${rawText.length} chars`);
 
-  try {
-    // Try to extract JSON — handle markdown fences
-    let jsonStr = rawText;
+    try {
+      // Strip markdown code fences if present
+      let jsonStr = rawText;
+      const fenceMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/);
 
-    // Strip markdown code fences if present
-    const fenceMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (fenceMatch) {
+        jsonStr = fenceMatch[1].trim();
+      }
 
-    if (fenceMatch) {
-      jsonStr = fenceMatch[1].trim();
-    }
+      // Remove any text before the first { or after the last }
+      const firstBrace = jsonStr.indexOf('{');
+      const lastBrace = jsonStr.lastIndexOf('}');
 
-    // Find the JSON object
-    const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
-    const plan = JSON.parse(jsonMatch?.[0] ?? jsonStr ?? '{}') as OrchestratorPlan;
+      if (firstBrace === -1 || lastBrace === -1) {
+        throw new Error('No JSON object found in response');
+      }
 
-    if (!plan.tasks?.length) {
-      throw new Error('No tasks in plan');
-    }
+      jsonStr = jsonStr.substring(firstBrace, lastBrace + 1);
+      const plan = JSON.parse(jsonStr) as OrchestratorPlan;
 
-    // Validate each task has required fields
-    for (const task of plan.tasks) {
-      if (!task.name || !task.file || !task.description) {
-        throw new Error(`Task ${task.id} missing required fields`);
+      if (!plan.tasks?.length) {
+        throw new Error('No tasks in plan');
+      }
+
+      // Validate each task has required fields
+      for (const task of plan.tasks) {
+        if (!task.name || !task.file || !task.description) {
+          throw new Error(`Task ${task.id} missing required fields`);
+        }
+      }
+
+      logger.info(`[orchestrator] Plan (attempt ${attempt}): ${plan.tasks.length} tasks — ${plan.tasks.map((t) => t.name).join(' → ')}`);
+
+      return plan;
+    } catch (parseErr) {
+      logger.warn(`[orchestrator] Decompose attempt ${attempt} failed: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`);
+
+      if (attempt < 3) {
+        continue; // retry
       }
     }
-
-    logger.info(`[orchestrator] Plan: ${plan.tasks.length} tasks — ${plan.tasks.map((t) => t.name).join(' → ')}`);
-
-    return plan;
-  } catch (parseErr) {
-    logger.warn(`[orchestrator] Failed to parse decomposition plan (${parseErr instanceof Error ? parseErr.message : String(parseErr)}), raw: ${rawText.substring(0, 200)}`);
-
-    // IMPROVED fallback: create a reasonable 5-task plan based on the prompt
-    return {
-      reasoning: 'Fallback 5-task plan (decomposer failed)',
-      tasks: [
-        {
-          id: 1,
-          name: 'HTML shell + CDN scripts + base CSS',
-          file: 'index.html',
-          description: `Create index.html with: DOCTYPE, head with Tailwind CDN (cdn.tailwindcss.com), React 18 CDN (unpkg react@18.3.1/umd/react.development.js), ReactDOM CDN, Babel standalone, Google Fonts. Add a style block with all custom CSS from the prompt (liquid-glass, etc). Body bg #000, #root div, empty script type=text/babel. Request: ${prompt.substring(0, 500)}`,
-        },
-        {
-          id: 2,
-          name: 'Core components (video, animations)',
-          file: 'index.html',
-          description: `Add React components: FadingVideo (custom crossfade with requestAnimationFrame), BlurText (word-by-word animation), and any other custom components mentioned in the prompt. Request: ${prompt.substring(0, 500)}`,
-        },
-        {
-          id: 3,
-          name: 'Hero section + Navbar',
-          file: 'index.html',
-          description: `Add Navbar component and Hero section with all elements from the prompt: badge, headline, subheading, CTAs, stats cards, partners row. Request: ${prompt.substring(0, 500)}`,
-        },
-        {
-          id: 4,
-          name: 'Remaining sections + content',
-          file: 'index.html',
-          description: `Add all remaining sections from the prompt (Capabilities, Features, etc). Include all specific content, text, and elements mentioned. Request: ${prompt.substring(0, 500)}`,
-        },
-        {
-          id: 5,
-          name: 'App assembly + render',
-          file: 'index.html',
-          description: `Add App component that renders all sections in order, then ReactDOM.render(<App/>, document.getElementById('root')). Ensure all components are properly defined and exported via window.X = X. Request: ${prompt.substring(0, 500)}`,
-        },
-      ],
-    };
   }
+
+  // If all 3 attempts fail, use DYNAMIC fallback that analyzes the prompt
+  logger.warn('[orchestrator] All decompose attempts failed, using dynamic fallback');
+  return createDynamicFallback(prompt);
+}
+
+/**
+ * Create a dynamic fallback plan based on analyzing the prompt content.
+ * This is NOT hardcoded — it reads the prompt and creates tasks based on
+ * what the user actually asked for.
+ */
+function createDynamicFallback(prompt: string): OrchestratorPlan {
+  const lower = prompt.toLowerCase();
+
+  // Detect what the user wants
+  const isSingleFile = lower.includes('cdn') || lower.includes('single file') || lower.includes('html');
+  const hasVideo = lower.includes('video') || lower.includes('fading') || lower.includes('crossfade');
+  const hasNavbar = lower.includes('navbar') || lower.includes('navigation') || lower.includes('nav');
+  const hasHero = lower.includes('hero') || lower.includes('landing');
+  const hasCards = lower.includes('card') || lower.includes('feature') || lower.includes('capabilities');
+  const hasFooter = lower.includes('footer') || lower.includes('partners');
+  const hasForms = lower.includes('form') || lower.includes('input') || lower.includes('contact');
+  const hasAnimations = lower.includes('animation') || lower.includes('framer') || lower.includes('motion');
+  const hasCustomCSS = lower.includes('liquid') || lower.includes('glass') || lower.includes('gradient') || lower.includes('custom css');
+  const hasFonts = lower.includes('font') || lower.includes('serif') || lower.includes('barlow');
+
+  const tasks: OrchestratorTask[] = [];
+  let taskId = 1;
+  const file = isSingleFile ? 'index.html' : 'src/App.tsx';
+
+  // Task 1: Always start with HTML shell + CDN + base styles
+  tasks.push({
+    id: taskId++,
+    name: 'HTML shell + CDN scripts + base styles',
+    file,
+    description: `Create ${file} with: DOCTYPE, head section with ALL CDN scripts mentioned in the prompt (Tailwind, React, ReactDOM, Babel, Framer Motion, etc), Google Fonts links, title. Add a style block with ALL custom CSS mentioned (liquid-glass, backdrop-filter, gradient borders, etc). Body background color as specified. ${file === 'index.html' ? 'Add #root div and empty script type=text/babel.' : 'Set up Vite React entry.'} PROMPT: ${prompt.substring(0, 800)}`,
+  });
+
+  // Task 2: Custom components (video, animations, etc)
+  if (hasVideo || hasAnimations || hasCustomCSS) {
+    const components: string[] = [];
+    if (hasVideo) components.push('FadingVideo component with custom crossfade using requestAnimationFrame');
+    if (hasAnimations) components.push('BlurText component with word-by-word animation using Framer Motion');
+    if (hasCustomCSS) components.push('Apply all custom CSS classes (liquid-glass, liquid-glass-strong, etc)');
+
+    tasks.push({
+      id: taskId++,
+      name: 'Custom components & effects',
+      file,
+      description: `Add these React components: ${components.join(', ')}. Each component must be fully functional with all event handlers, animations, and styles as specified in the prompt. PROMPT: ${prompt.substring(0, 800)}`,
+    });
+  }
+
+  // Task 3: Navbar
+  if (hasNavbar) {
+    tasks.push({
+      id: taskId++,
+      name: 'Navbar / Navigation',
+      file,
+      description: `Add Navbar component with all elements specified: logo, navigation links, buttons, liquid-glass styling, etc. Include all text content exactly as specified in the prompt. PROMPT: ${prompt.substring(0, 800)}`,
+    });
+  }
+
+  // Task 4: Hero section
+  if (hasHero) {
+    tasks.push({
+      id: taskId++,
+      name: 'Hero section',
+      file,
+      description: `Add Hero section with ALL elements from the prompt: badge, headline (exact text), subheading (exact text), CTAs (exact button text), stats cards (exact numbers and labels), background video, animations. Include ALL specific content mentioned. PROMPT: ${prompt.substring(0, 800)}`,
+    });
+  }
+
+  // Task 5: Additional sections (capabilities, features, cards, etc)
+  if (hasCards || hasFooter || hasForms) {
+    const sections: string[] = [];
+    if (hasCards) sections.push('Capabilities/Features section with all cards, icons, tags, and descriptions');
+    if (hasFooter) sections.push('Partners/Footer section with all partner names and text');
+    if (hasForms) sections.push('Contact form with all inputs and validation');
+
+    tasks.push({
+      id: taskId++,
+      name: 'Additional sections & content',
+      file,
+      description: `Add these sections: ${sections.join(', ')}. Include ALL specific content, text, numbers, names, and elements exactly as specified in the prompt. Do not skip or summarize any content. PROMPT: ${prompt.substring(0, 800)}`,
+    });
+  }
+
+  // Last task: Assembly
+  tasks.push({
+    id: taskId++,
+    name: 'App assembly & render',
+    file,
+    description: `Add App component that renders ALL sections in the correct order. Then mount with ${file === 'index.html' ? 'ReactDOM.render(<App/>, document.getElementById("root"))' : 'createRoot(document.getElementById("root")).render(<App/>)'}. Ensure all components are properly defined and connected. PROMPT: ${prompt.substring(0, 800)}`,
+  });
+
+  return {
+    reasoning: `Dynamic ${tasks.length}-task plan based on prompt analysis`,
+    tasks,
+  };
 }
 
 /**
