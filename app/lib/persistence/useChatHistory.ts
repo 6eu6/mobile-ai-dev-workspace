@@ -314,7 +314,10 @@ export function useChatHistory() {
               const hasPreviewFiles = Object.keys(previewFiles).length > 0;
 
               if (hasPreviewFiles) {
-                // Worker build restore: populate workbench from previewFiles
+                /*
+                 * SILENT restore — populate workbench, set build status, no messages.
+                 * User just sees their files and preview like any normal page.
+                 */
                 const fileMap: Record<string, { type: 'file'; content: string; isBinary?: boolean }> = {};
 
                 for (const [path, content] of Object.entries(previewFiles)) {
@@ -322,22 +325,21 @@ export function useChatHistory() {
                 }
                 workbenchStore.files.set(fileMap as any);
 
-                // Create a minimal message so the chat shows the build
-                const restoredMessages: Message[] = [
-                  {
-                    id: generateId(),
-                    role: 'user',
-                    content: 'Build project from worker',
-                    annotations: ['no-store', 'hidden'],
-                  } as Message,
-                  {
-                    id: generateId(),
-                    role: 'assistant',
-                    content: 'Project restored from build history.',
-                    annotations: ['no-store'],
-                  } as Message,
-                ];
-                setInitialMessages(restoredMessages);
+                // Set build status so preview knows it can show
+                const { buildStatusStore } = await import('~/lib/stores/build-status');
+                const current = buildStatusStore.get();
+                buildStatusStore.set({
+                  ...current,
+                  jobStatus: 'ready_for_preview',
+                  completeness: 'complete',
+                  hasCompletionMarker: true,
+                  artifactTagsBalanced: true,
+                  fileActionsBalanced: true,
+                  fileCount: Object.keys(previewFiles).length,
+                });
+
+                // No messages — silent restore. User sees files + preview tab.
+                setInitialMessages([]);
                 chatId.set(mixedId);
                 setReady(true);
                 isRestoring.set(false);

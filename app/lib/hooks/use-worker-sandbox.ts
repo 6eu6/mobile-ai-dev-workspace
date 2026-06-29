@@ -12,7 +12,8 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useStore } from '@nanostores/react';
-import { buildStatusStore, previewFilesStore } from '~/lib/stores/build-status';
+import { buildStatusStore } from '~/lib/stores/build-status';
+import { previewFilesStore } from '~/lib/stores/build-status';
 import {
   isMemoryConstrainedDevice,
   isRemoteSandboxAvailable,
@@ -40,7 +41,6 @@ const PREVIEW_ABS_DIR = `${WORK_DIR}/preview`;
 
 export function useWorkerSandbox(): WorkerSandboxResult {
   const buildStatus = useStore(buildStatusStore);
-  const previewFiles = useStore(previewFilesStore);
 
   const [sandboxState, setSandboxState] = useState<SandboxRunState>('idle');
   const [sandboxUrl, setSandboxUrl] = useState<string | undefined>();
@@ -108,17 +108,18 @@ export function useWorkerSandbox(): WorkerSandboxResult {
     }
   }, []);
 
-  // Auto-launch on desktop for WebContainer-compatible types (free, zero cost).
-  useEffect(() => {
-    const isReady = buildStatus.jobStatus === 'ready_for_preview';
-    const hasFiles = Object.keys(previewFiles).length > 0;
-    const isWcType = appType && WC_TYPES.has(appType);
-    const desktop = !isMemoryConstrainedDevice();
-
-    if (isReady && hasFiles && isWcType && desktop && sandboxState === 'idle' && !launchRef.current) {
-      doLaunch().catch(console.error);
-    }
-  }, [buildStatus.jobStatus, buildStatus.appType, sandboxState, previewFiles]);
+  /*
+   * NO auto-launch — sandbox only starts when user clicks "Launch Preview".
+   *
+   * Previously, the sandbox auto-launched on page load for desktop WebContainer
+   * types. This caused:
+   * - "جاري تشغيل الساندبوكس" appearing immediately on chat open (bad UX)
+   * - Resource waste (sandbox boots even if user just wants to read code)
+   * - Mobile users seeing sandbox errors before touching Preview tab
+   *
+   * Now: sandbox is LAZY — only boots when user explicitly clicks the
+   * "Launch Preview" button in the Preview tab.
+   */
 
   const launchSandbox = useCallback(() => {
     doLaunch().catch(console.error);
