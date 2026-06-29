@@ -323,8 +323,11 @@ export function useChatHistory() {
                   const parsed = JSON.parse(sessionData);
                   previewFiles = parsed.files || {};
 
-                  // Clean up — don't restore the same files twice
-                  sessionStorage.removeItem('palmkit_restore_files');
+                  /*
+                   * Clean up — don't restore the same files twice
+                   * Don't remove — keep as a flag to prevent re-processing
+                   * sessionStorage.removeItem('palmkit_restore_files');
+                   */
                 } catch {
                   /* invalid JSON */
                 }
@@ -370,8 +373,18 @@ export function useChatHistory() {
                   fileCount: Object.keys(previewFiles).length,
                 });
 
-                // No messages — silent restore. User sees files + preview tab.
-                setInitialMessages([]);
+                /*
+                 * Set a single hidden message so the chat doesn't redirect.
+                 * The user doesn't see this — it's just to keep the chat "started".
+                 */
+                setInitialMessages([
+                  {
+                    id: generateId(),
+                    role: 'assistant' as const,
+                    content: '',
+                    annotations: ['no-store', 'hidden'],
+                  } as Message,
+                ]);
                 chatId.set(mixedId);
                 setReady(true);
                 isRestoring.set(false);
