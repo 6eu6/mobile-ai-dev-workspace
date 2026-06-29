@@ -299,6 +299,55 @@ export function useChatHistory() {
           const hasSnapshot = snapshot && snapshot.files && Object.keys(snapshot.files).length > 0;
 
           if (!hasMessages && !hasSnapshot) {
+            /*
+             * BUG FIX: Worker builds don't create IndexedDB records.
+             * When a user opens a worker build from "My Builds" page,
+             * the openBuild() function fetches files from R2 and sets
+             * them in previewFilesStore, then navigates here.
+             *
+             * Check if previewFilesStore has files (set by openBuild).
+             * If so, don't redirect — show the preview directly.
+             */
+            try {
+              const { previewFilesStore } = await import('~/lib/stores/build-status');
+              const previewFiles = previewFilesStore.get();
+              const hasPreviewFiles = Object.keys(previewFiles).length > 0;
+
+              if (hasPreviewFiles) {
+                // Worker build restore: populate workbench from previewFiles
+                const fileMap: Record<string, { type: 'file'; content: string; isBinary?: boolean }> = {};
+
+                for (const [path, content] of Object.entries(previewFiles)) {
+                  fileMap[path] = { type: 'file', content };
+                }
+                workbenchStore.files.set(fileMap as any);
+
+                // Create a minimal message so the chat shows the build
+                const restoredMessages: Message[] = [
+                  {
+                    id: generateId(),
+                    role: 'user',
+                    content: 'Build project from worker',
+                    annotations: ['no-store', 'hidden'],
+                  } as Message,
+                  {
+                    id: generateId(),
+                    role: 'assistant',
+                    content: 'Project restored from build history.',
+                    annotations: ['no-store'],
+                  } as Message,
+                ];
+                setInitialMessages(restoredMessages);
+                chatId.set(mixedId);
+                setReady(true);
+                isRestoring.set(false);
+
+                return;
+              }
+            } catch {
+              // best-effort
+            }
+
             isRestoring.set(false);
             navigate('/', { replace: true });
             setReady(true);
