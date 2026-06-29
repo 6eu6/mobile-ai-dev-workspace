@@ -261,9 +261,17 @@ export async function getRemoteLogs(id: string): Promise<string> {
   }
 }
 
-/** Tear down the sandbox (also auto-reaped after inactivity). */
+/**
+ * Phase 2.1: Pause the sandbox instead of destroying it.
+ *
+ * Pausing preserves state (node_modules, dev server, files) and costs 80% less.
+ * The sandbox can be resumed instantly via Sandbox.connect() — E2B auto-resumes.
+ *
+ * For genuine cleanup (e.g., user explicitly deletes the project), use the
+ * 'destroy' op directly. This function is for the common "user left" case.
+ */
 export async function destroyRemoteSandbox(id: string): Promise<void> {
-  await callWithRetry({ op: 'destroy', id }, 0).catch(() => undefined);
+  await callWithRetry({ op: 'pause', id }, 0).catch(() => undefined);
 }
 
 /**

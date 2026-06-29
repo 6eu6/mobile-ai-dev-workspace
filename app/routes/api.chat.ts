@@ -13,7 +13,7 @@ import { extractPropertiesFromMessage } from '~/lib/.server/llm/utils';
 import type { DesignScheme } from '~/types/design-scheme';
 import { MCPService } from '~/lib/services/mcpService';
 import { StreamRecoveryManager } from '~/lib/.server/llm/stream-recovery';
-import { builtInTools } from '~/lib/.server/llm/built-in-tools';
+import { builtInTools, phase2Tools } from '~/lib/.server/llm/built-in-tools';
 import { validateBuildOutput, completenessToJobStatus } from '~/lib/runtime/output-validator';
 
 export async function action(args: ActionFunctionArgs) {
@@ -259,18 +259,32 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
          * mergeIntoDataStream and checks finishReason afterwards.
          */
         /*
-         * Built-in tools (Phase 1.2): read_file, list_files, web_search, read_url.
+         * Built-in tools (Phase 1.2 + Phase 2):
          *
          * SMART ENABLING — only enable tools when they add value:
          *   - read_file / list_files: only when there ARE existing files (edit mode)
          *     In a fresh build, the LLM has no files to read, so these tools just
          *     distract it from producing <palmkitArtifact> tags.
          *   - web_search / read_url: always available (useful for research)
+         *   - grep: always available (fast code search, no sandbox needed)
+         *   - run_shell / screenshot / read_sandbox_file: only when sandboxId is available
+         *     (these call /api/sb which requires a running E2B sandbox)
          *
-         * This prevents the "LLM calls tools instead of building" failure mode
-         * while still enabling verification in edit/iterate scenarios.
+         * Phase 2 tools let the LLM:
+         * - Run `npm run build` to verify the project compiles
+         * - Take a screenshot to visually verify the preview
+         * - Read files from the sandbox filesystem (post-build verification)
+         * - Grep across all files (find definitions, imports, TODOs)
          */
         const hasExistingFiles = files && Object.keys(files).length > 0;
+
+        /*
+         * Phase 2: check if there's an active sandbox for this chat session.
+         * The sandboxId is stored in buildStatusStore when the sandbox launches.
+         * For server-side tool calls, we read it from the request context.
+         */
+        const sandboxId = (context as any)?.cloudflare?.env?.CURRENT_SANDBOX_ID as string | undefined;
+
         const toolsForRequest: Record<string, any> = {
           ...mcpService.toolsWithoutExecute,
           web_search: {
@@ -278,6 +292,12 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
           },
           read_url: {
             ...builtInTools.read_url,
+          },
+
+          // grep doesn't need a sandbox — searches the project's file map
+          grep: {
+            ...phase2Tools.grep,
+            execute: (args: any, opts: any) => (phase2Tools.grep as any).execute(args, { ...opts, files }),
           },
         };
 
@@ -290,6 +310,26 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
           toolsForRequest.list_files = {
             ...builtInTools.list_files,
             execute: (_args: any, opts: any) => (builtInTools.list_files as any).execute({}, { ...opts, files }),
+          };
+        }
+
+        /*
+         * Phase 2: enable sandbox tools when a sandbox is available.
+         * These let the LLM verify builds, take screenshots, and read sandbox files.
+         */
+        if (sandboxId) {
+          toolsForRequest.run_shell = {
+            ...phase2Tools.run_shell,
+            execute: (args: any, opts: any) => (phase2Tools.run_shell as any).execute(args, { ...opts, sandboxId }),
+          };
+          toolsForRequest.screenshot = {
+            ...phase2Tools.screenshot,
+            execute: (args: any, opts: any) => (phase2Tools.screenshot as any).execute(args, { ...opts, sandboxId }),
+          };
+          toolsForRequest.read_sandbox_file = {
+            ...phase2Tools.read_sandbox_file,
+            execute: (args: any, opts: any) =>
+              (phase2Tools.read_sandbox_file as any).execute(args, { ...opts, sandboxId }),
           };
         }
 
