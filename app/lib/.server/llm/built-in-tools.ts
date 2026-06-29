@@ -51,8 +51,10 @@ export const readFileTool = tool({
     /*
      * The tool execution context provides the current project files via
      * a custom property we set in api.chat.ts when wiring the tools.
+     * FileMap = Record<string, Dirent | undefined> where Dirent = File | Folder
+     * Only File entries have .content
      */
-    const files = (options as any)?.files as Record<string, { content: string }> | undefined;
+    const files = (options as any)?.files as Record<string, any> | undefined;
 
     if (!files) {
       return { error: 'No project files available in this context' };
@@ -61,20 +63,29 @@ export const readFileTool = tool({
     // Normalize path (remove leading ./ or /)
     const normalizedPath = path.replace(/^\.?\//, '');
 
-    const file = files[normalizedPath] ?? files[`./${normalizedPath}`];
+    const entry = files[normalizedPath] ?? files[`./${normalizedPath}`];
 
-    if (!file) {
+    if (!entry) {
       return {
         error: `File not found: ${path}`,
-        availableFiles: Object.keys(files).slice(0, 20),
+        availableFiles: Object.keys(files)
+          .filter((k) => files[k]?.type === 'file')
+          .slice(0, 20),
+      };
+    }
+
+    // Skip folders and non-file entries
+    if (entry.type !== 'file' || typeof entry.content !== 'string') {
+      return {
+        error: `${path} is not a file (type: ${entry.type ?? 'unknown'})`,
       };
     }
 
     return {
       path: normalizedPath,
-      content: file.content,
-      size: file.content.length,
-      lines: file.content.split('\n').length,
+      content: entry.content,
+      size: entry.content.length,
+      lines: entry.content.split('\n').length,
     };
   },
 });
@@ -92,17 +103,22 @@ export const listFilesTool = tool({
     'List all files in the current project. Returns the file paths and their sizes. Use this to understand the project structure or verify all expected files exist.',
   parameters: z.object({}),
   execute: async (_, options) => {
-    const files = (options as any)?.files as Record<string, { content: string }> | undefined;
+    const files = (options as any)?.files as Record<string, any> | undefined;
 
     if (!files) {
       return { error: 'No project files available in this context' };
     }
 
+    /*
+     * FileMap = Record<string, Dirent | undefined> where Dirent = File | Folder
+     * Only include File entries (skip folders and undefined)
+     */
     const fileList = Object.entries(files)
-      .map(([path, file]) => ({
+      .filter(([, entry]) => entry?.type === 'file' && typeof entry.content === 'string')
+      .map(([path, entry]) => ({
         path,
-        size: file.content?.length ?? 0,
-        lines: file.content?.split('\n').length ?? 0,
+        size: entry.content.length,
+        lines: entry.content.split('\n').length,
       }))
       .sort((a, b) => a.path.localeCompare(b.path));
 
@@ -491,7 +507,7 @@ export const grepTool = tool({
       .describe('File pattern to search in (e.g. "*.tsx" or "src/**"). Default: all files'),
   }),
   execute: async ({ pattern, fileGlob }, options) => {
-    const files = (options as any)?.files as Record<string, { content: string }> | undefined;
+    const files = (options as any)?.files as Record<string, any> | undefined;
 
     if (!files) {
       return { error: 'No project files available.' };
@@ -517,12 +533,21 @@ export const grepTool = tool({
       ? new RegExp(fileGlob.replace(/\./g, '\\.').replace(/\*/g, '.*').replace(/\?/g, '.'))
       : null;
 
-    for (const [path, file] of Object.entries(files)) {
+    for (const [path, entry] of Object.entries(files)) {
+      /*
+       * Skip undefined entries, folders, and non-file entries
+       * FileMap = Record<string, Dirent | undefined> where Dirent = File | Folder
+       * Only File entries have .content
+       */
+      if (!entry || entry.type !== 'file' || typeof entry.content !== 'string') {
+        continue;
+      }
+
       if (globFilter && !globFilter.test(path)) {
         continue;
       }
 
-      const lines = file.content.split('\n');
+      const lines = entry.content.split('\n');
 
       for (let i = 0; i < lines.length; i++) {
         if (regex.test(lines[i])) {
