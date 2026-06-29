@@ -241,6 +241,64 @@ export function useChatHistory() {
   }, [accountUser?.id]);
 
   useEffect(() => {
+    /*
+     * SILENT INSTANT RESTORE from sessionStorage (for worker builds).
+     * This runs BEFORE the db check because IndexedDB might not be ready
+     * on a fresh page load. sessionStorage is always available.
+     */
+    if (mixedId) {
+      try {
+        const sessionData = sessionStorage.getItem('palmkit_restore_files');
+
+        if (sessionData) {
+          const parsed = JSON.parse(sessionData);
+          const previewFiles: Record<string, string> = parsed.files || {};
+
+          if (Object.keys(previewFiles).length > 0) {
+            // Populate workbench
+            const fileMap: Record<string, { type: 'file'; content: string; isBinary?: boolean }> = {};
+
+            for (const [path, content] of Object.entries(previewFiles)) {
+              fileMap[path] = { type: 'file', content };
+            }
+            workbenchStore.files.set(fileMap as any);
+
+            // Set stores for preview
+            import('~/lib/stores/build-status').then(({ buildStatusStore, setPreviewFiles: setStore }) => {
+              setStore(previewFiles);
+
+              const current = buildStatusStore.get();
+              buildStatusStore.set({
+                ...current,
+                jobStatus: 'ready_for_preview',
+                completeness: 'complete',
+                hasCompletionMarker: true,
+                artifactTagsBalanced: true,
+                fileActionsBalanced: true,
+                fileCount: Object.keys(previewFiles).length,
+              });
+            });
+
+            // Set a hidden message so the chat doesn't redirect
+            setInitialMessages([
+              {
+                id: generateId(),
+                role: 'assistant' as const,
+                content: '',
+                annotations: ['no-store', 'hidden'],
+              } as Message,
+            ]);
+            chatId.set(mixedId);
+            setReady(true);
+
+            return; // Don't proceed to db check
+          }
+        }
+      } catch {
+        // best-effort — fall through to normal db-based restore
+      }
+    }
+
     if (!db) {
       setReady(true);
 
