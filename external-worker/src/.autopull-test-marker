@@ -1,2 +1,0 @@
-This file marks that the auto-pull timer is working.
-If you see this file on the worker, the systemd timer successfully pulled main.
