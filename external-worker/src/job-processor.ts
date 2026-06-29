@@ -348,9 +348,13 @@ export async function processNextJob(supabase: SupabaseClient): Promise<void> {
     // Orchestrator builds are assembled from multiple LLM calls and may not
     // match the strict file-structure expectations (e.g., CDN-only HTML apps
     // don't have separate styles.css/app.js files). Skip validation for these.
+    // Skip validation for agent builds and orchestrator builds — they use their own
+    // file structure (e.g., single HTML file with CDN, not separate package.json)
+    const wasAgentBuilt = result.rawText?.includes('agent-build') ?? false;
     const wasOrchestrated = result.rawText?.includes('orchestrated-build') ?? false;
+    const skipValidation = wasAgentBuilt || wasOrchestrated;
 
-    if (!editJobId && !wasOrchestrated) {
+    if (!editJobId && !skipValidation) {
       await updateJobProgress(supabase, job.id, 50, 'validate');
       await emitEvent(supabase, job.id, 'validation_started', 'Validating output...');
       await recordStep(supabase, job.id, { type: 'validate', status: 'running', order: 3 });
@@ -378,7 +382,7 @@ export async function processNextJob(supabase: SupabaseClient): Promise<void> {
       await emitEvent(supabase, job.id, 'validation_passed', 'Validation passed');
 
       logger.info(`Job ${job.id}: validation passed`);
-    } else if (wasOrchestrated) {
+    } else if (skipValidation) {
       await updateJobProgress(supabase, job.id, 50, 'validate');
       await emitEvent(supabase, job.id, 'validation_passed', 'Validation skipped (orchestrator build)');
       logger.info(`Job ${job.id}: validation skipped (orchestrator build)`);
