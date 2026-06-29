@@ -389,7 +389,8 @@ export async function processNextJob(supabase: SupabaseClient): Promise<void> {
     }
 
     // ─── Phase 3.5: BUILD CHECK (react / vue / nextjs only; skip for edits) ─
-    if (!editJobId && BUILD_CHECK_TYPES.has(result.appType)) {
+    // Skip build check for agent builds — they use their own file structure
+    if (!editJobId && !skipValidation && BUILD_CHECK_TYPES.has(result.appType)) {
       await updateJobProgress(supabase, job.id, 55, 'build_check');
       await emitEvent(supabase, job.id, 'build_check_started', `Running build check for ${result.appType}...`);
       await recordStep(supabase, job.id, { type: 'build_check', status: 'running', order: 4 });
