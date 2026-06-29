@@ -10,7 +10,11 @@ type MCPSettings = {
 };
 
 const defaultSettings = {
-  maxLLMSteps: 5,
+  /*
+   * 15 steps allows the LLM to: generate → run build → read errors → fix → rebuild → verify
+   * (5 was too low for complex projects — LLM couldn't iterate to success)
+   */
+  maxLLMSteps: 15,
   mcpConfig: {
     mcpServers: {},
   },

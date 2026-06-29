@@ -13,6 +13,7 @@ import { extractPropertiesFromMessage } from '~/lib/.server/llm/utils';
 import type { DesignScheme } from '~/types/design-scheme';
 import { MCPService } from '~/lib/services/mcpService';
 import { StreamRecoveryManager } from '~/lib/.server/llm/stream-recovery';
+import { builtInTools } from '~/lib/.server/llm/built-in-tools';
 import { validateBuildOutput, completenessToJobStatus } from '~/lib/runtime/output-validator';
 
 export async function action(args: ActionFunctionArgs) {
@@ -260,7 +261,25 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
         const streamOptions: StreamingOptions = {
           supabaseConnection: supabase,
           toolChoice: 'auto',
-          tools: mcpService.toolsWithoutExecute,
+          tools: {
+            ...mcpService.toolsWithoutExecute,
+
+            /*
+             * Built-in tools (Phase 1.2): let the LLM read files, list files,
+             * search the web, and read URLs DURING generation.
+             * This enables the agent loop: generate → verify → fix → retry.
+             * The `files` context is injected so read_file/list_files work.
+             */
+            ...Object.fromEntries(
+              Object.entries(builtInTools).map(([name, t]) => [
+                name,
+                {
+                  ...t,
+                  execute: (args: any, opts: any) => (t as any).execute(args, { ...opts, files }),
+                },
+              ]),
+            ),
+          },
           maxSteps: maxLLMSteps,
           onStepFinish: ({ toolCalls }) => {
             toolCalls.forEach((toolCall) => {

@@ -140,6 +140,18 @@ export function useExternalWorker() {
   }, []);
 
   const pollJob = useCallback((jobId: string) => {
+    /*
+     * Phase 1.4: Polling with planned Realtime upgrade.
+     *
+     * Current: poll /api/jobs every 1.5s (POLL_INTERVAL_MS).
+     * Planned: subscribe to Supabase Realtime for instant updates.
+     * Realtime will be added in Phase 2 once Supabase Realtime is enabled
+     * on the project (needs `supabase realtime enable`).
+     *
+     * The polling logic below is kept as a fallback even after Realtime
+     * is added, for resilience.
+     */
+
     const poll = async () => {
       try {
         const resp = await fetch(`/api/jobs?id=${jobId}`);
@@ -187,11 +199,6 @@ export function useExternalWorker() {
 
         // Terminal states: stop polling.
         if (uiStatus === 'ready_for_preview') {
-          /*
-           * Only build blob-URL preview for static projects.
-           * React/Next.js/Vue need a build step + sandbox (Phase 3) —
-           * showing raw source files as blob URL produces a broken page.
-           */
           if (!fetchedPreview.current && appType === 'static') {
             fetchedPreview.current = true;
             await fetchPreviewFiles(jobId, data.files as ExternalWorkerState['files']);
