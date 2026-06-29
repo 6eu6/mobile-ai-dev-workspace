@@ -412,7 +412,11 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
                 } satisfies ProgressAnnotation);
               });
 
-              if (orchestratorResult.success && orchestratorResult.artifactText) {
+              /*
+               * Always write the artifact if we have any content, even if some tasks failed.
+               * Partial results are better than no results.
+               */
+              if (orchestratorResult.artifactText && orchestratorResult.artifactText.length > 50) {
                 /*
                  * Write the assembled artifact as text-delta chunks.
                  * The Vercel AI SDK protocol writes text-delta as "0: text\n"
