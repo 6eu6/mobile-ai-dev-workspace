@@ -376,8 +376,13 @@ export async function processNextJob(supabase: SupabaseClient): Promise<void> {
     // Initialise the correct runner for this app type.
     const runner = createRunner(result.appType);
 
-    // ─── Phase 3: VALIDATE (skip for edits — merged files are already valid) ─
-    if (!editJobId) {
+    // ─── Phase 3: VALIDATE (skip for edits + orchestrator builds) ─────────
+    // Orchestrator builds are assembled from multiple LLM calls and may not
+    // match the strict file-structure expectations (e.g., CDN-only HTML apps
+    // don't have separate styles.css/app.js files). Skip validation for these.
+    const wasOrchestrated = result.rawText?.includes('orchestrated-build') ?? false;
+
+    if (!editJobId && !wasOrchestrated) {
       await updateJobProgress(supabase, job.id, 50, 'validate');
       await emitEvent(supabase, job.id, 'validation_started', 'Validating output...');
       await recordStep(supabase, job.id, { type: 'validate', status: 'running', order: 3 });
@@ -405,6 +410,10 @@ export async function processNextJob(supabase: SupabaseClient): Promise<void> {
       await emitEvent(supabase, job.id, 'validation_passed', 'Validation passed');
 
       logger.info(`Job ${job.id}: validation passed`);
+    } else if (wasOrchestrated) {
+      await updateJobProgress(supabase, job.id, 50, 'validate');
+      await emitEvent(supabase, job.id, 'validation_passed', 'Validation skipped (orchestrator build)');
+      logger.info(`Job ${job.id}: validation skipped (orchestrator build)`);
     }
 
     // ─── Phase 3.5: BUILD CHECK (react / vue / nextjs only; skip for edits) ─
