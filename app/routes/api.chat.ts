@@ -258,28 +258,45 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
          * Instead, we now use a while-loop below that awaits each
          * mergeIntoDataStream and checks finishReason afterwards.
          */
+        /*
+         * Built-in tools (Phase 1.2): read_file, list_files, web_search, read_url.
+         *
+         * SMART ENABLING — only enable tools when they add value:
+         *   - read_file / list_files: only when there ARE existing files (edit mode)
+         *     In a fresh build, the LLM has no files to read, so these tools just
+         *     distract it from producing <palmkitArtifact> tags.
+         *   - web_search / read_url: always available (useful for research)
+         *
+         * This prevents the "LLM calls tools instead of building" failure mode
+         * while still enabling verification in edit/iterate scenarios.
+         */
+        const hasExistingFiles = files && Object.keys(files).length > 0;
+        const toolsForRequest: Record<string, any> = {
+          ...mcpService.toolsWithoutExecute,
+          web_search: {
+            ...builtInTools.web_search,
+          },
+          read_url: {
+            ...builtInTools.read_url,
+          },
+        };
+
+        if (hasExistingFiles) {
+          // Edit/iterate mode: enable file verification tools
+          toolsForRequest.read_file = {
+            ...builtInTools.read_file,
+            execute: (args: any, opts: any) => (builtInTools.read_file as any).execute(args, { ...opts, files }),
+          };
+          toolsForRequest.list_files = {
+            ...builtInTools.list_files,
+            execute: (_args: any, opts: any) => (builtInTools.list_files as any).execute({}, { ...opts, files }),
+          };
+        }
+
         const streamOptions: StreamingOptions = {
           supabaseConnection: supabase,
           toolChoice: 'auto',
-          tools: {
-            ...mcpService.toolsWithoutExecute,
-
-            /*
-             * Built-in tools (Phase 1.2): let the LLM read files, list files,
-             * search the web, and read URLs DURING generation.
-             * This enables the agent loop: generate → verify → fix → retry.
-             * The `files` context is injected so read_file/list_files work.
-             */
-            ...Object.fromEntries(
-              Object.entries(builtInTools).map(([name, t]) => [
-                name,
-                {
-                  ...t,
-                  execute: (args: any, opts: any) => (t as any).execute(args, { ...opts, files }),
-                },
-              ]),
-            ),
-          },
+          tools: toolsForRequest,
           maxSteps: maxLLMSteps,
           onStepFinish: ({ toolCalls }) => {
             toolCalls.forEach((toolCall) => {
