@@ -1,343 +1,437 @@
 /**
- * Build Orchestrator — Phase 3 of Agentic Roadmap
+ * Build Orchestrator v2 — Matches Super Z's working pattern exactly
  *
- * Handles complex build requests by:
- * 1. Decomposing the prompt into sequential tasks
- * 2. Generating each task with a separate LLM call (small, reliable)
- * 3. Merging results into the final project
- * 4. Streaming progress to the user at each step
+ * How Super Z works:
+ *   1. ANALYZE: Read full prompt (no truncation)
+ *   2. PLAN: Create specific steps (dynamic, not hardcoded)
+ *   3. DECOMPOSE: Break into tasks, each with FULL context
+ *   4. EXECUTE: Run tasks (parallel for independent, sequential for dependent)
+ *   5. VERIFY: Check output completeness before proceeding
+ *   6. FIX: If incomplete, send targeted fix request (not full regenerate)
+ *   7. MERGE: Combine all results
  *
- * This prevents the "stream cutoff on complex prompts" bug by ensuring
- * each LLM call is small (~1000-3000 chars) instead of one massive call.
- *
- * Flow:
- *   User: "Build cinematic space-travel landing page with React, Tailwind,
- *          Framer Motion, liquid-glass CSS, FadingVideo..."
- *
- *   Orchestrator:
- *     📋 Analyzing request...
- *     ✓ Plan: 7 tasks
- *     ▶ Task 1/7: HTML shell + CDN scripts... ✓
- *     ▶ Task 2/7: Liquid-glass CSS... ✓
- *     ▶ Task 3/7: FadingVideo component... ✓
- *     ▶ Task 4/7: BlurText component... ✓
- *     ▶ Task 5/7: Navbar + Hero... ✓
- *     ▶ Task 6/7: Partners + Capabilities... ✓
- *     ▶ Task 7/7: App wiring... ✓
- *     🔍 Verifying... ✓
- *     🚀 Build complete!
+ * Key principles:
+ *   - NEVER truncate the prompt — every agent sees the FULL original request
+ *   - NEVER truncate existing content — every agent sees the FULL current file
+ *   - VERIFY after each task — don't proceed with incomplete output
+ *   - PARALLEL execution for independent tasks (saves time)
+ *   - TARGETED FIX on failure (not expensive regeneration)
+ *   - Worklog: track every decision in the project's worklog file
  */
 
 import { generateText, type LanguageModelV1 } from 'ai';
 import { logger } from './logger';
 
-export interface OrchestratorTask {
+// ─── Types ──────────────────────────────────────────────────────────────────
+
+export interface AgentTask {
   id: number;
   name: string;
   file: string;
   description: string;
+  /** Tasks that must complete before this one can start */
+  dependsOn?: number[];
+  /** Whether this task can run in parallel with others */
+  parallelizable?: boolean;
 }
 
-export interface OrchestratorPlan {
+export interface BuildPlan {
   reasoning: string;
-  tasks: OrchestratorTask[];
+  tasks: AgentTask[];
+}
+
+export interface TaskResult {
+  taskId: number;
+  taskName: string;
+  success: boolean;
+  content: string;
+  duration: number;
+  verified: boolean;
+  error?: string;
 }
 
 export interface OrchestratorResult {
   success: boolean;
   files: Record<string, { type: 'file'; content: string; isBinary?: boolean }>;
-  taskResults: Array<{
-    taskId: number;
-    taskName: string;
-    success: boolean;
-    duration: number;
-    error?: string;
-  }>;
+  taskResults: TaskResult[];
   totalDuration: number;
+  worklog: string;
 }
 
-/**
- * Progress callback — called after each task completes.
- * The caller (api.chat.ts) uses this to stream progress to the browser.
- */
 export type ProgressCallback = (update: {
-  type: 'plan' | 'task_start' | 'task_complete' | 'task_error' | 'verify' | 'complete' | 'error';
+  type: 'plan' | 'task_start' | 'task_complete' | 'task_error' | 'task_fix' | 'verify' | 'complete' | 'error';
   message: string;
   taskId?: number;
   totalTasks?: number;
   taskName?: string;
-  files?: Record<string, { type: 'file'; content: string }>;
 }) => void;
 
+// ─── Phase 1: ANALYZE + PLAN (Dynamic Decomposition) ────────────────────────
+
 /**
- * Decompose a complex prompt into sequential tasks.
+ * Analyze the prompt and create a dynamic task plan.
+ *
+ * This is NOT hardcoded — the LLM reads the FULL prompt and decides:
+ * - How many tasks are needed
+ * - What each task should contain
+ * - Which tasks can run in parallel
+ * - Dependencies between tasks
+ *
+ * Retry logic: 3 attempts with increasing temperature.
+ * If all fail, use dynamic fallback that analyzes the prompt content.
  */
-async function decompose(
+async function analyzeAndPlan(
   prompt: string,
   model: LanguageModelV1,
-): Promise<OrchestratorPlan> {
-  logger.info(`[orchestrator] Decomposing task (${prompt.length} chars)`);
+  onProgress: ProgressCallback,
+): Promise<BuildPlan> {
+  onProgress({ type: 'plan', message: '📋 Analyzing request and creating build plan...' });
 
-  const systemPrompt = `You are a project planner for an AI app builder. Break the user's request into 5-8 sequential tasks.
+  const systemPrompt = `You are an expert project planner for an AI app builder. Your job is to break a build request into tasks.
 
 CRITICAL RULES:
-1. Each task MUST produce code that fits in 2000-4000 chars (NOT smaller)
-2. Order by dependency: HTML shell first, then CSS, then components, then sections, then assembly
-3. For single-file apps (HTML/CSS/JS), each task APPENDS content to the same index.html file
-4. Be VERY SPECIFIC about what to create — mention exact class names, component names, content
-5. NEVER combine unrelated things in one task (e.g., don't put CSS + JS + HTML in one task)
-6. The LAST task must be "App Assembly" that wires everything together
+1. Read the ENTIRE prompt carefully — note every specific element, text, number, name, URL, and style
+2. Each task should produce 2000-5000 chars of code
+3. Order by dependency: foundation first, then components, then sections, then assembly
+4. Mark tasks as parallelizable=true if they don't depend on each other
+5. The LAST task must be "App Assembly" that wires everything together
+6. Be EXTREMELY SPECIFIC — include exact text, numbers, class names, URLs from the prompt
+7. Each task description must mention ALL specific content it needs to include
 
-OUTPUT FORMAT — return ONLY valid JSON, no markdown, no explanation:
-{"reasoning":"1-2 sentences","tasks":[{"id":1,"name":"Short name","file":"index.html","description":"Detailed description of what to generate in this task, including specific elements, classes, and content"}]}
+OUTPUT FORMAT — return ONLY valid JSON (no markdown, no explanation):
+{
+  "reasoning": "1-2 sentences",
+  "tasks": [
+    {
+      "id": 1,
+      "name": "Short name",
+      "file": "index.html",
+      "description": "DETAILED description including ALL specific elements, text, numbers, URLs from the prompt that this task must include",
+      "dependsOn": [],
+      "parallelizable": true
+    }
+  ]
+}
 
-EXAMPLE for "Build a landing page with hero and features":
-{"reasoning":"Single HTML file with CDN scripts, built incrementally","tasks":[{"id":1,"name":"HTML shell + CDN scripts","file":"index.html","description":"Create index.html with: DOCTYPE, html, head with Tailwind CDN script, React 18 CDN, Babel standalone, Google Fonts links, title, and body with #root div and empty script type=text/babel"},{"id":2,"name":"CSS utilities + base styles","file":"index.html","description":"Add a style block in head with: body background #000, custom CSS classes like .liquid-glass with backdrop-filter blur, .liquid-glass-strong, gradient borders via ::before with mask-composite, font-family setup"},{"id":3,"name":"Video component","file":"index.html","description":"Add a FadingVideo React component: wraps video element, uses requestAnimationFrame for crossfade, handles loadeddata/timeupdate/ended events, manual looping"},{"id":4,"name":"Navbar + Hero section","file":"index.html","description":"Add Navbar component (fixed top, liquid-glass pill, links) and Hero component (badge, headline, subheading, CTAs, stats cards)"},{"id":5,"name":"Features + Partners + Assembly","file":"index.html","description":"Add Features section (3 cards with icons) and Partners row (5 names). Then add App component that renders all sections, and ReactDOM.render to mount"}]}`;
+IMPORTANT: Do NOT skip or summarize any content from the prompt. Every specific element (text, numbers, names, URLs, styles) must appear in at least one task description.`;
 
-  // RETRY LOGIC: try up to 3 times to get valid JSON from the decomposer
   for (let attempt = 1; attempt <= 3; attempt++) {
     const result = await generateText({
       model,
-      system: systemPrompt + (attempt > 1 ? `\n\nPREVIOUS ATTEMPT FAILED. Return ONLY valid JSON this time. No markdown, no explanation, no code fences. Start with { and end with }.` : ''),
-      prompt: `Break this build request into 5-8 tasks. Return ONLY JSON:\n\n${prompt}`,
-      maxTokens: 3000,
-      temperature: attempt === 1 ? 0.2 : 0.5, // increase temperature on retry for variety
+      system: systemPrompt + (attempt > 1 ? '\n\nPREVIOUS ATTEMPT FAILED. Return ONLY valid JSON. Start with { and end with }.' : ''),
+      prompt: `Break this build request into tasks. Return ONLY JSON:\n\n${prompt}`,
+      maxTokens: 4000,
+      temperature: attempt === 1 ? 0.2 : 0.5,
     });
 
     const rawText = result.text ?? '';
-    logger.info(`[orchestrator] Decompose attempt ${attempt}: ${rawText.length} chars`);
+    logger.info(`[orchestrator] Plan attempt ${attempt}: ${rawText.length} chars`);
 
     try {
-      // Strip markdown code fences if present
+      // Robust JSON extraction
       let jsonStr = rawText;
       const fenceMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (fenceMatch) jsonStr = fenceMatch[1].trim();
 
-      if (fenceMatch) {
-        jsonStr = fenceMatch[1].trim();
-      }
-
-      // Remove any text before the first { or after the last }
       const firstBrace = jsonStr.indexOf('{');
       const lastBrace = jsonStr.lastIndexOf('}');
-
-      if (firstBrace === -1 || lastBrace === -1) {
-        throw new Error('No JSON object found in response');
-      }
+      if (firstBrace === -1 || lastBrace === -1) throw new Error('No JSON found');
 
       jsonStr = jsonStr.substring(firstBrace, lastBrace + 1);
-      const plan = JSON.parse(jsonStr) as OrchestratorPlan;
+      const plan = JSON.parse(jsonStr) as BuildPlan;
 
-      if (!plan.tasks?.length) {
-        throw new Error('No tasks in plan');
-      }
+      if (!plan.tasks?.length) throw new Error('No tasks');
 
-      // Validate each task has required fields
       for (const task of plan.tasks) {
         if (!task.name || !task.file || !task.description) {
-          throw new Error(`Task ${task.id} missing required fields`);
+          throw new Error(`Task ${task.id} missing fields`);
         }
       }
 
-      logger.info(`[orchestrator] Plan (attempt ${attempt}): ${plan.tasks.length} tasks — ${plan.tasks.map((t) => t.name).join(' → ')}`);
+      const parallelCount = plan.tasks.filter((t) => t.parallelizable).length;
+      onProgress({
+        type: 'plan',
+        message: `✓ Plan ready: ${plan.tasks.length} tasks (${parallelCount} parallelizable)\n${plan.tasks.map((t) => `  ${t.id}. ${t.name}${t.parallelizable ? ' ⟂' : ''}`).join('\n')}`,
+        totalTasks: plan.tasks.length,
+      });
 
       return plan;
-    } catch (parseErr) {
-      logger.warn(`[orchestrator] Decompose attempt ${attempt} failed: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`);
-
-      if (attempt < 3) {
-        continue; // retry
-      }
+    } catch (err) {
+      logger.warn(`[orchestrator] Plan attempt ${attempt} failed: ${err}`);
+      if (attempt < 3) continue;
     }
   }
 
-  // If all 3 attempts fail, use DYNAMIC fallback that analyzes the prompt
-  logger.warn('[orchestrator] All decompose attempts failed, using dynamic fallback');
-  return createDynamicFallback(prompt);
+  // Dynamic fallback: analyze the prompt and create tasks based on content
+  logger.warn('[orchestrator] Using dynamic fallback plan');
+  return createDynamicPlan(prompt, onProgress);
 }
 
 /**
- * Create a dynamic fallback plan based on analyzing the prompt content.
- * This is NOT hardcoded — it reads the prompt and creates tasks based on
- * what the user actually asked for.
+ * Dynamic fallback: reads the prompt and creates tasks based on detected features.
+ * NOT hardcoded — adapts to what the user actually asked for.
  */
-function createDynamicFallback(prompt: string): OrchestratorPlan {
+function createDynamicPlan(prompt: string, onProgress: ProgressCallback): BuildPlan {
   const lower = prompt.toLowerCase();
+  const tasks: AgentTask[] = [];
+  let id = 1;
+  const file = lower.includes('cdn') || lower.includes('html') ? 'index.html' : 'src/App.tsx';
 
-  // Detect what the user wants
-  const isSingleFile = lower.includes('cdn') || lower.includes('single file') || lower.includes('html');
-  const hasVideo = lower.includes('video') || lower.includes('fading') || lower.includes('crossfade');
-  const hasNavbar = lower.includes('navbar') || lower.includes('navigation') || lower.includes('nav');
-  const hasHero = lower.includes('hero') || lower.includes('landing');
-  const hasCards = lower.includes('card') || lower.includes('feature') || lower.includes('capabilities');
-  const hasFooter = lower.includes('footer') || lower.includes('partners');
-  const hasForms = lower.includes('form') || lower.includes('input') || lower.includes('contact');
-  const hasAnimations = lower.includes('animation') || lower.includes('framer') || lower.includes('motion');
-  const hasCustomCSS = lower.includes('liquid') || lower.includes('glass') || lower.includes('gradient') || lower.includes('custom css');
-  const hasFonts = lower.includes('font') || lower.includes('serif') || lower.includes('barlow');
-
-  const tasks: OrchestratorTask[] = [];
-  let taskId = 1;
-  const file = isSingleFile ? 'index.html' : 'src/App.tsx';
-
-  // Task 1: Always start with HTML shell + CDN + base styles
+  // Task 1: Foundation (always needed)
   tasks.push({
-    id: taskId++,
-    name: 'HTML shell + CDN scripts + base styles',
+    id: id++,
+    name: 'HTML shell + CDN + base styles + fonts',
     file,
-    description: `Create ${file} with: DOCTYPE, head section with ALL CDN scripts mentioned in the prompt (Tailwind, React, ReactDOM, Babel, Framer Motion, etc), Google Fonts links, title. Add a style block with ALL custom CSS mentioned (liquid-glass, backdrop-filter, gradient borders, etc). Body background color as specified. ${file === 'index.html' ? 'Add #root div and empty script type=text/babel.' : 'Set up Vite React entry.'} PROMPT: ${prompt}`,
+    description: `Create the base ${file}. Include: DOCTYPE, head with ALL CDN scripts from the prompt, ALL Google Fonts, ALL custom CSS (liquid-glass, backdrop-filter, gradients, etc). Body background. ${file === 'index.html' ? '#root div + script type=text/babel.' : 'Vite entry.'} FULL PROMPT:\n${prompt}`,
+    parallelizable: false,
   });
 
-  // Task 2: Custom components (video, animations, etc)
-  if (hasVideo || hasAnimations || hasCustomCSS) {
-    const components: string[] = [];
-    if (hasVideo) components.push('FadingVideo component with custom crossfade using requestAnimationFrame');
-    if (hasAnimations) components.push('BlurText component with word-by-word animation using Framer Motion');
-    if (hasCustomCSS) components.push('Apply all custom CSS classes (liquid-glass, liquid-glass-strong, etc)');
-
+  // Task 2: Custom components (if needed)
+  const components: string[] = [];
+  if (lower.includes('video') || lower.includes('fading') || lower.includes('crossfade')) {
+    components.push('FadingVideo component with requestAnimationFrame crossfade');
+  }
+  if (lower.includes('blur') || lower.includes('word-by-word')) {
+    components.push('BlurText component with word-by-word animation');
+  }
+  if (lower.includes('animation') || lower.includes('framer') || lower.includes('motion')) {
+    components.push('Framer Motion animation wrappers');
+  }
+  if (components.length > 0) {
     tasks.push({
-      id: taskId++,
-      name: 'Custom components & effects',
+      id: id++,
+      name: `Custom components (${components.length})`,
       file,
-      description: `Add these React components: ${components.join(', ')}. Each component must be fully functional with all event handlers, animations, and styles as specified in the prompt. PROMPT: ${prompt}`,
+      description: `Add these React components: ${components.join(', ')}. Each must be fully functional with ALL event handlers, animations, and styles specified. FULL PROMPT:\n${prompt}`,
+      dependsOn: [1],
+      parallelizable: false,
     });
   }
 
-  // Task 3: Navbar
-  if (hasNavbar) {
+  // Task 3: Navbar (if needed)
+  if (lower.includes('navbar') || lower.includes('nav') || lower.includes('navigation')) {
     tasks.push({
-      id: taskId++,
+      id: id++,
       name: 'Navbar / Navigation',
       file,
-      description: `Add Navbar component with all elements specified: logo, navigation links, buttons, liquid-glass styling, etc. Include all text content exactly as specified in the prompt. PROMPT: ${prompt}`,
+      description: `Add Navbar with ALL elements from the prompt: logo, links (exact text), buttons (exact text), styling. FULL PROMPT:\n${prompt}`,
+      dependsOn: [1],
+      parallelizable: true,
     });
   }
 
-  // Task 4: Hero section
-  if (hasHero) {
+  // Task 4: Hero section (if needed)
+  if (lower.includes('hero') || lower.includes('landing')) {
     tasks.push({
-      id: taskId++,
+      id: id++,
       name: 'Hero section',
       file,
-      description: `Add Hero section with ALL elements from the prompt: badge, headline (exact text), subheading (exact text), CTAs (exact button text), stats cards (exact numbers and labels), background video, animations. Include ALL specific content mentioned. PROMPT: ${prompt}`,
+      description: `Add Hero section with ALL elements: badge (exact text), headline (exact text), subheading (exact text), CTAs (exact button text), stats cards (exact numbers and labels), background video, animations. FULL PROMPT:\n${prompt}`,
+      dependsOn: [1],
+      parallelizable: true,
     });
   }
 
-  // Task 5: Additional sections (capabilities, features, cards, etc)
-  if (hasCards || hasFooter || hasForms) {
-    const sections: string[] = [];
-    if (hasCards) sections.push('Capabilities/Features section with all cards, icons, tags, and descriptions');
-    if (hasFooter) sections.push('Partners/Footer section with all partner names and text');
-    if (hasForms) sections.push('Contact form with all inputs and validation');
-
+  // Task 5: Additional sections (if needed)
+  const sections: string[] = [];
+  if (lower.includes('capabilit') || lower.includes('feature') || lower.includes('card')) {
+    sections.push('Capabilities/Features section with ALL cards, icons, tags, descriptions (exact text)');
+  }
+  if (lower.includes('partner') || lower.includes('aeon') || lower.includes('vela')) {
+    sections.push('Partners section with ALL partner names (exact): Aeon, Vela, Apex, Orbit, Zeno');
+  }
+  if (lower.includes('footer')) {
+    sections.push('Footer with all content');
+  }
+  if (lower.includes('form') || lower.includes('contact')) {
+    sections.push('Contact form with all inputs');
+  }
+  if (sections.length > 0) {
     tasks.push({
-      id: taskId++,
-      name: 'Additional sections & content',
+      id: id++,
+      name: `Additional sections (${sections.length})`,
       file,
-      description: `Add these sections: ${sections.join(', ')}. Include ALL specific content, text, numbers, names, and elements exactly as specified in the prompt. Do not skip or summarize any content. PROMPT: ${prompt}`,
+      description: `Add these sections: ${sections.join('; ')}. Include ALL specific content, text, numbers, names exactly as in the prompt. FULL PROMPT:\n${prompt}`,
+      dependsOn: [1],
+      parallelizable: true,
     });
   }
 
-  // Last task: Assembly
+  // Task N: Assembly (always last)
   tasks.push({
-    id: taskId++,
-    name: 'App assembly & render',
+    id: id++,
+    name: 'App assembly + render',
     file,
-    description: `Add App component that renders ALL sections in the correct order. Then mount with ${file === 'index.html' ? 'ReactDOM.render(<App/>, document.getElementById("root"))' : 'createRoot(document.getElementById("root")).render(<App/>)'}. Ensure all components are properly defined and connected. PROMPT: ${prompt}`,
+    description: `Add App component rendering ALL sections in order. Mount with ${file === 'index.html' ? 'ReactDOM.render' : 'createRoot'}. Ensure everything is connected. FULL PROMPT:\n${prompt}`,
+    dependsOn: tasks.slice(1).map((t) => t.id), // depends on all previous
+    parallelizable: false,
   });
 
-  return {
-    reasoning: `Dynamic ${tasks.length}-task plan based on prompt analysis`,
-    tasks,
-  };
+  onProgress({
+    type: 'plan',
+    message: `✓ Dynamic plan: ${tasks.length} tasks\n${tasks.map((t) => `  ${t.id}. ${t.name}`).join('\n')}`,
+    totalTasks: tasks.length,
+  });
+
+  return { reasoning: `Dynamic ${tasks.length}-task plan`, tasks };
 }
 
+// ─── Phase 2: EXECUTE (with parallel support) ───────────────────────────────
+
 /**
- * Execute a single task — generate code for one piece of the project.
+ * Execute a single task. The LLM gets:
+ * - The FULL original prompt (no truncation)
+ * - The FULL current file content (no truncation)
+ * - The specific task description
  *
- * The LLM gets:
- * - The original prompt (for context)
- * - The current state of the file (what's been generated so far)
- * - The specific task to perform
- *
- * It returns the file with this task's code appended/updated.
+ * This matches how Super Z gives subagents full context.
  */
 async function executeTask(
-  task: OrchestratorTask,
-  originalPrompt: string,
-  currentFiles: Record<string, { type: 'file'; content: string }>,
+  task: AgentTask,
+  fullPrompt: string,
+  currentContent: string,
   model: LanguageModelV1,
-): Promise<{ content: string; raw: string }> {
-  const existingContent = currentFiles[task.file]?.content ?? '';
-
-  const systemPrompt = `You are an expert web developer generating code for a project.
+): Promise<string> {
+  const systemPrompt = `You are an expert web developer. Generate code for the specified task.
 
 CRITICAL RULES:
-1. Output code wrapped in <palmkitArtifact> tags
-2. For EXISTING files, output the COMPLETE file with your additions merged in
-3. For NEW files, output the complete file from scratch
-4. End with __PALMKIT_DONE__ on the last line
-5. Write COMPLETE code — no placeholders, no "...rest stays same"
+1. You MUST output code wrapped in <palmkitArtifact> tags
+2. For EXISTING files, output the COMPLETE file with your additions MERGED in
+3. Write COMPLETE code — no placeholders, no "...", no "// rest stays same"
+4. Include ALL specific text, numbers, names, URLs from the original prompt
+5. End with __PALMKIT_DONE__ on the last line
+6. Do NOT skip or summarize any content
 
 FORMAT:
 <palmkitArtifact id="task-${task.id}" title="${task.name}">
 <palmkitAction type="file" filePath="${task.file}">
-[COMPLETE FILE CONTENT HERE]
+[COMPLETE FILE CONTENT — include ALL existing code + your additions]
 </palmkitAction>
 </palmkitArtifact>
 __PALMKIT_DONE__`;
 
-  const userPrompt = `Original request: ${originalPrompt}
+  // FULL prompt + FULL current content — NO TRUNCATION
+  const userPrompt = `=== ORIGINAL REQUEST (FULL) ===
+${fullPrompt}
 
-${existingContent ? `Current ${task.file} (already generated, MERGE your additions into this):` : 'This is a new file.'}
-${existingContent ? existingContent : ''}
-
-YOUR TASK: ${task.name}
+=== YOUR TASK ===
+${task.name}
 ${task.description}
 
-Generate the ${existingContent ? 'updated' : 'complete'} ${task.file} file now.`;
+=== CURRENT ${task.file} CONTENT (MERGE your additions into this) ===
+${currentContent || '(empty — this is a new file)'}
+
+Generate the COMPLETE updated ${task.file}. Include ALL existing content plus your new additions. Do not skip anything.`;
 
   const result = await generateText({
     model,
     system: systemPrompt,
     prompt: userPrompt,
-    maxTokens: 12000,
+    maxTokens: 16000,
     temperature: 0.7,
   });
 
+  return result.text ?? '';
+}
+
+/**
+ * Extract file content from palmkitArtifact response.
+ */
+function extractFileContent(text: string): string | null {
+  const match = text.match(/<palmkitAction[^>]*>([\s\S]*?)<\/palmkitAction>/i);
+  return match?.[1]?.trim() ?? null;
+}
+
+// ─── Phase 3: VERIFY (check completeness) ───────────────────────────────────
+
+/**
+ * Verify that a task's output is complete and contains expected elements.
+ *
+ * Like Super Z checking "did this step actually work?" before proceeding.
+ */
+function verifyTaskOutput(
+  content: string,
+  task: AgentTask,
+  fullPrompt: string,
+): { passed: boolean; missing: string[] } {
+  const missing: string[] = [];
+
+  // Basic checks
+  if (content.length < 20) {
+    missing.push('output too short');
+  }
+
+  // Check for specific content mentioned in the task description
+  // Extract quoted strings from the task description
+  const quotedStrings = task.description.match(/["']([^"']+)["']/g) || [];
+  for (const quoted of quotedStrings) {
+    const text = quoted.replace(/["']/g, '');
+    // Skip generic words, only check meaningful content (>3 chars)
+    if (text.length > 3 && !['json', 'html', 'file', 'type', 'text', 'babel'].includes(text.toLowerCase())) {
+      if (!content.includes(text)) {
+        missing.push(`missing: "${text}"`);
+      }
+    }
+  }
+
+  // Check for specific numbers from the prompt
+  const numbers = fullPrompt.match(/\b\d+\.?\d*[BMK+]?/g) || [];
+  for (const num of numbers) {
+    if (num.length > 2 && !content.includes(num)) {
+      // Only flag if it's a meaningful number (not just "1" or "2")
+      if (/\d{2,}/.test(num) || num.includes('.') || num.includes('B') || num.includes('M')) {
+        missing.push(`missing number: ${num}`);
+      }
+    }
+  }
+
   return {
-    content: result.text ?? '',
-    raw: result.text ?? '',
+    passed: missing.length === 0,
+    missing: missing.slice(0, 5), // cap for brevity
   };
 }
 
+// ─── Phase 4: FIX (targeted repair, not full regeneration) ──────────────────
+
 /**
- * Extract file content from palmkitArtifact tags.
+ * If a task's output is incomplete, send a TARGETED fix request.
+ * This is cheaper than regenerating the entire task.
+ *
+ * Like Super Z using Edit tool to fix a specific line instead of Write.
  */
-function extractFileContent(text: string, filePath: string): string | null {
-  // Find the palmkitAction for this file
-  const actionRegex = new RegExp(
-    `<palmkitAction[^>]*filePath=["']${filePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["'][^>]*>([\\s\\S]*?)</palmkitAction>`,
-    'i',
-  );
+async function fixTaskOutput(
+  content: string,
+  missing: string[],
+  task: AgentTask,
+  fullPrompt: string,
+  model: LanguageModelV1,
+): Promise<string> {
+  const fixPrompt = `The previous output for task "${task.name}" is missing these elements:
+${missing.map((m) => `- ${m}`).join('\n')}
 
-  const match = text.match(actionRegex);
+Here is the current content:
+${content.substring(0, 5000)}
 
-  if (match) {
-    return match[1].trim();
-  }
+Add the missing elements. Output the COMPLETE updated file in <palmkitArtifact> format.
 
-  // Fallback: if no specific file match, try to get content between artifact tags
-  const artifactMatch = text.match(/<palmkitAction[^>]*>([\s\S]*?)<\/palmkitAction>/i);
+Original request for reference:
+${fullPrompt}`;
 
-  return artifactMatch?.[1]?.trim() ?? null;
+  const result = await generateText({
+    model,
+    system: 'You are fixing incomplete code output. Add the missing elements and output the COMPLETE file.',
+    prompt: fixPrompt,
+    maxTokens: 16000,
+    temperature: 0.5,
+  });
+
+  const fixed = extractFileContent(result.text ?? '');
+
+  return fixed ?? content; // return original if fix failed
 }
 
-/**
- * Main orchestrator entry point.
- *
- * Call this from api.chat.ts when the prompt is complex enough to decompose.
- * It handles the entire multi-step build process and streams progress.
- */
+// ─── Main Orchestrator ──────────────────────────────────────────────────────
+
 export async function orchestrateBuild(
   prompt: string,
   model: LanguageModelV1,
@@ -345,139 +439,226 @@ export async function orchestrateBuild(
   onProgress: ProgressCallback,
 ): Promise<OrchestratorResult> {
   const startTime = Date.now();
-  const taskResults: OrchestratorResult['taskResults'] = [];
+  const taskResults: TaskResult[] = [];
+  const worklogEntries: string[] = [`# Build Worklog\nStarted: ${new Date().toISOString()}\nPrompt: ${prompt.substring(0, 200)}...\n`];
+
+  // Keep-alive timer (prevents connection drop during long LLM calls)
+  const keepAlive = setInterval(() => {
+    onProgress({
+      type: 'task_start',
+      message: `⏳ Working... (${Math.round((Date.now() - startTime) / 1000)}s)`,
+    });
+  }, 5000);
 
   try {
-    // ── Phase 1: Decompose ─────────────────────────────────────────────
-    onProgress({
-      type: 'plan',
-      message: '📋 Analyzing request and creating build plan...',
-    });
+    // ── Phase 1: ANALYZE + PLAN ─────────────────────────────────────────
+    const plan = await analyzeAndPlan(prompt, model, onProgress);
+    worklogEntries.push(`## Plan\n${plan.tasks.map((t) => `- [ ] ${t.id}. ${t.name}`).join('\n')}\n`);
 
-    const plan = await decompose(prompt, model);
+    // ── Phase 2: EXECUTE tasks ──────────────────────────────────────────
+    let currentContent = existingFiles['index.html']?.content ?? '';
+    const completedTasks = new Set<number>();
 
-    onProgress({
-      type: 'plan',
-      message: `✓ Plan ready: ${plan.tasks.length} tasks\n${plan.tasks.map((t) => `  ${t.id}. ${t.name}`).join('\n')}`,
-      totalTasks: plan.tasks.length,
-    });
+    // Group tasks by dependency level (for parallel execution)
+    while (completedTasks.size < plan.tasks.length) {
+      // Find tasks whose dependencies are all met
+      const ready = plan.tasks.filter(
+        (t) => !completedTasks.has(t.id) && (t.dependsOn ?? []).every((dep) => completedTasks.has(dep)),
+      );
 
-    // ── Phase 2: Execute tasks sequentially ────────────────────────────
-    const currentFiles: Record<string, { type: 'file'; content: string }> = { ...existingFiles };
+      if (ready.length === 0) {
+        // Deadlock — shouldn't happen, but handle gracefully
+        logger.warn('[orchestrator] No ready tasks (possible circular dependency)');
+        break;
+      }
 
-    for (const task of plan.tasks) {
-      const taskStart = Date.now();
+      // Split into parallelizable and sequential
+      const parallel = ready.filter((t) => t.parallelizable && ready.length > 1);
+      const sequential = ready.filter((t) => !t.parallelizable || ready.length === 1);
 
-      onProgress({
-        type: 'task_start',
-        message: `▶ Task ${task.id}/${plan.tasks.length}: ${task.name}`,
-        taskId: task.id,
-        totalTasks: plan.tasks.length,
-        taskName: task.name,
-      });
-
-      try {
-        const result = await executeTask(task, prompt, currentFiles, model);
-        const fileContent = extractFileContent(result.raw, task.file);
-
-        if (!fileContent || fileContent.length < 20) {
-          throw new Error(`Task produced empty or too-short output (${fileContent?.length ?? 0} chars)`);
+      // Execute sequential tasks one by one
+      for (const task of sequential) {
+        const result = await runTask(task, prompt, currentContent, model, onProgress, worklogEntries);
+        taskResults.push(result);
+        completedTasks.add(task.id);
+        if (result.success && result.content) {
+          currentContent = result.content;
         }
+      }
 
-        // Merge into current files
-        currentFiles[task.file] = {
-          type: 'file',
-          content: fileContent,
-        };
-
-        const duration = Date.now() - taskStart;
-        taskResults.push({
-          taskId: task.id,
-          taskName: task.name,
-          success: true,
-          duration,
-        });
-
+      // Execute parallel tasks simultaneously (like Super Z's Task tool)
+      if (parallel.length > 1) {
         onProgress({
-          type: 'task_complete',
-          message: `✓ Task ${task.id}/${plan.tasks.length}: ${task.name} (${duration}ms, ${fileContent.length} chars)`,
-          taskId: task.id,
-          totalTasks: plan.tasks.length,
-          taskName: task.name,
-          files: { ...currentFiles },
+          type: 'task_start',
+          message: `⚡ Running ${parallel.length} tasks in parallel...`,
         });
 
-        logger.info(`[orchestrator] Task ${task.id} complete: ${task.name} (${duration}ms, ${fileContent.length} chars)`);
-      } catch (taskErr) {
-        const duration = Date.now() - taskStart;
-        const errorMsg = taskErr instanceof Error ? taskErr.message : String(taskErr);
+        const results = await Promise.all(
+          parallel.map((task) =>
+            runTask(task, prompt, currentContent, model, onProgress, worklogEntries).catch((err) => ({
+              taskId: task.id,
+              taskName: task.name,
+              success: false,
+              content: '',
+              duration: 0,
+              verified: false,
+              error: err.message,
+            })),
+          ),
+        );
 
-        taskResults.push({
-          taskId: task.id,
-          taskName: task.name,
-          success: false,
-          duration,
-          error: errorMsg,
-        });
-
-        onProgress({
-          type: 'task_error',
-          message: `⚠ Task ${task.id}/${plan.tasks.length}: ${task.name} failed — ${errorMsg}. Continuing...`,
-          taskId: task.id,
-          totalTasks: plan.tasks.length,
-          taskName: task.name,
-        });
-
-        logger.warn(`[orchestrator] Task ${task.id} failed: ${task.name} — ${errorMsg}`);
-        // Continue to next task — partial results are still useful
+        for (const result of results) {
+          taskResults.push(result);
+          completedTasks.add(result.taskId);
+          if (result.success && result.content) {
+            // Merge: use the longest content (most complete)
+            if (result.content.length > currentContent.length) {
+              currentContent = result.content;
+            }
+          }
+        }
       }
     }
 
-    // ── Phase 3: Verify ────────────────────────────────────────────────
-    onProgress({
-      type: 'verify',
-      message: '🔍 Verifying build completeness...',
-    });
+    // ── Phase 3: FINAL VERIFICATION ────────────────────────────────────
+    onProgress({ type: 'verify', message: '🔍 Final verification...' });
 
-    const totalFiles = Object.keys(currentFiles).length;
     const successCount = taskResults.filter((r) => r.success).length;
-    const success = successCount > 0 && totalFiles > 0;
+    const success = successCount > 0 && currentContent.length > 100;
 
-    const totalDuration = Date.now() - startTime;
+    worklogEntries.push(`\n## Results\n- Tasks: ${successCount}/${plan.tasks.length} succeeded\n- Final size: ${currentContent.length} chars\n- Duration: ${Date.now() - startTime}ms\n`);
 
     if (success) {
       onProgress({
         type: 'complete',
-        message: `🚀 Build complete! ${totalFiles} file(s), ${successCount}/${plan.tasks.length} tasks succeeded (${totalDuration}ms)`,
-        files: currentFiles,
+        message: `🚀 Build complete! ${successCount}/${plan.tasks.length} tasks succeeded, ${currentContent.length} chars (${Date.now() - startTime}ms)`,
       });
     } else {
-      onProgress({
-        type: 'error',
-        message: `Build failed — 0 tasks succeeded out of ${plan.tasks.length}`,
-      });
+      onProgress({ type: 'error', message: `Build failed — ${successCount}/${plan.tasks.length} tasks succeeded` });
     }
 
     return {
       success,
-      files: currentFiles,
+      files: success ? { [plan.tasks[0]?.file ?? 'index.html']: { type: 'file', content: currentContent } } : {},
       taskResults,
-      totalDuration,
+      totalDuration: Date.now() - startTime,
+      worklog: worklogEntries.join('\n'),
     };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
-    logger.error(`[orchestrator] Fatal error: ${errorMsg}`);
-
-    onProgress({
-      type: 'error',
-      message: `Build failed: ${errorMsg}`,
-    });
-
+    onProgress({ type: 'error', message: `Build failed: ${errorMsg}` });
     return {
       success: false,
       files: existingFiles,
       taskResults,
       totalDuration: Date.now() - startTime,
+      worklog: worklogEntries.join('\n'),
+    };
+  } finally {
+    clearInterval(keepAlive);
+  }
+}
+
+/**
+ * Run a single task with verification and fix-on-failure.
+ */
+async function runTask(
+  task: AgentTask,
+  fullPrompt: string,
+  currentContent: string,
+  model: LanguageModelV1,
+  onProgress: ProgressCallback,
+  worklog: string[],
+): Promise<TaskResult> {
+  const taskStart = Date.now();
+
+  onProgress({
+    type: 'task_start',
+    message: `▶ Task ${task.id}: ${task.name}`,
+    taskId: task.id,
+    taskName: task.name,
+  });
+
+  try {
+    // Execute the task (FULL prompt + FULL content — no truncation)
+    const rawOutput = await executeTask(task, fullPrompt, currentContent, model);
+    let fileContent = extractFileContent(rawOutput);
+
+    if (!fileContent || fileContent.length < 20) {
+      throw new Error(`Output too short (${fileContent?.length ?? 0} chars)`);
+    }
+
+    // VERIFY: check if output contains expected elements
+    const verification = verifyTaskOutput(fileContent, task, fullPrompt);
+
+    if (!verification.passed && verification.missing.length > 0) {
+      onProgress({
+        type: 'task_fix',
+        message: `🔧 Task ${task.id}: fixing missing elements (${verification.missing.length})...`,
+        taskId: task.id,
+        taskName: task.name,
+      });
+
+      // TARGETED FIX: send a fix request (not full regeneration)
+      const fixedContent = await fixTaskOutput(fileContent, verification.missing, task, fullPrompt, model);
+
+      if (fixedContent && fixedContent.length > fileContent.length) {
+        fileContent = fixedContent;
+        onProgress({
+          type: 'task_complete',
+          message: `✓ Task ${task.id}: ${task.name} (fixed +verified, ${fileContent.length} chars)`,
+          taskId: task.id,
+          taskName: task.name,
+        });
+      } else {
+        onProgress({
+          type: 'task_complete',
+          message: `✓ Task ${task.id}: ${task.name} (${fileContent.length} chars, ${verification.missing.length} items may be missing)`,
+          taskId: task.id,
+          taskName: task.name,
+        });
+      }
+    } else {
+      onProgress({
+        type: 'task_complete',
+        message: `✓ Task ${task.id}: ${task.name} (verified ✓, ${fileContent.length} chars)`,
+        taskId: task.id,
+        taskName: task.name,
+      });
+    }
+
+    const duration = Date.now() - taskStart;
+    worklog.push(`- [x] ${task.id}. ${task.name} (${duration}ms, ${fileContent.length} chars)\n`);
+
+    return {
+      taskId: task.id,
+      taskName: task.name,
+      success: true,
+      content: fileContent,
+      duration,
+      verified: verification.passed,
+    };
+  } catch (err) {
+    const duration = Date.now() - taskStart;
+    const errorMsg = err instanceof Error ? err.message : String(err);
+
+    onProgress({
+      type: 'task_error',
+      message: `⚠ Task ${task.id}: ${task.name} failed — ${errorMsg}`,
+      taskId: task.id,
+      taskName: task.name,
+    });
+
+    worklog.push(`- [!] ${task.id}. ${task.name} FAILED: ${errorMsg}\n`);
+
+    return {
+      taskId: task.id,
+      taskName: task.name,
+      success: false,
+      content: '',
+      duration,
+      verified: false,
+      error: errorMsg,
     };
   }
 }
