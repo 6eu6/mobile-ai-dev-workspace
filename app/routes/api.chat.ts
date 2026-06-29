@@ -2,6 +2,7 @@ import { type ActionFunctionArgs } from '@remix-run/cloudflare';
 import { createDataStream, generateId } from 'ai';
 import { isReasoningModel, MAX_RESPONSE_SEGMENTS, type FileMap } from '~/lib/common/llm/constants';
 import { CLOSE_OUT_PROMPT, CONTINUE_PROMPT } from '~/lib/common/prompts/prompts';
+import { PROVIDER_LIST } from '~/utils/constants';
 import { streamText, type Messages, type StreamingOptions } from '~/lib/.server/llm/stream-text';
 import type { IProviderSetting } from '~/types/model';
 import { createScopedLogger } from '~/utils/logger';
@@ -14,6 +15,7 @@ import type { DesignScheme } from '~/types/design-scheme';
 import { MCPService } from '~/lib/services/mcpService';
 import { StreamRecoveryManager } from '~/lib/.server/llm/stream-recovery';
 import { builtInTools, phase2Tools } from '~/lib/.server/llm/built-in-tools';
+import { shouldDecompose, orchestrateBuild } from '~/lib/.server/llm/build-orchestrator';
 import { validateBuildOutput, completenessToJobStatus } from '~/lib/runtime/output-validator';
 
 export async function action(args: ActionFunctionArgs) {
@@ -352,6 +354,102 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
           order: progressCounter++,
           message: 'Generating Response',
         } satisfies ProgressAnnotation);
+
+        /*
+         * ═══════════════════════════════════════════════════════════════════
+         * PHASE 3: BUILD ORCHESTRATOR
+         * ═══════════════════════════════════════════════════════════════════
+         * For complex prompts (multi-component, detailed specs), decompose
+         * the build into sequential tasks instead of one massive LLM call.
+         *
+         * This prevents the #1 bug: "stream cutoff on complex prompts".
+         * Each task is a small LLM call (~1000-3000 chars) that won't be cut.
+         *
+         * The orchestrator:
+         *   1. Decomposes the prompt into 3-8 tasks
+         *   2. Generates each task sequentially
+         *   3. Streams progress to the user at each step
+         *   4. Assembles the final artifact
+         *
+         * Simple prompts skip this and go through the normal single-shot path.
+         */
+        const lastUserMessage = processedMessages.filter((x) => x.role === 'user').slice(-1)[0];
+        const userPromptText: string =
+          typeof lastUserMessage?.content === 'string'
+            ? lastUserMessage.content
+            : Array.isArray((lastUserMessage as any)?.content)
+              ? (lastUserMessage as any).content.map((p: any) => (p.type === 'text' ? p.text : '')).join(' ')
+              : '';
+
+        // Only decompose for fresh builds (no existing files) with complex prompts
+        const isFreshBuild = !hasExistingFiles;
+        const isComplexPrompt = shouldDecompose(userPromptText);
+
+        if (isFreshBuild && isComplexPrompt) {
+          logger.info(`[orchestrator] Complex prompt detected (${userPromptText.length} chars), using orchestrator`);
+
+          // Get the model instance for direct generateText calls
+          const { model: orchestratorModel, provider: orchestratorProvider } =
+            extractPropertiesFromMessage(lastUserMessage);
+          const providerObj = PROVIDER_LIST.find((p) => p.name === orchestratorProvider) || PROVIDER_LIST[0];
+
+          if (providerObj) {
+            try {
+              const modelInstance = providerObj.getModelInstance({
+                model: orchestratorModel,
+                serverEnv: context.cloudflare?.env as any,
+                apiKeys,
+                providerSettings,
+              });
+
+              const orchestratorResult = await orchestrateBuild(userPromptText, modelInstance, (update) => {
+                dataStream.writeData({
+                  type: 'progress',
+                  label: 'orchestrator',
+                  status: update.type === 'error' ? 'error' : update.type === 'complete' ? 'complete' : 'in-progress',
+                  order: progressCounter++,
+                  message: update.message,
+                } satisfies ProgressAnnotation);
+              });
+
+              if (orchestratorResult.success && orchestratorResult.artifactText) {
+                /*
+                 * Feed the assembled artifact directly into the data stream
+                 * The message parser will extract files from it
+                 */
+                dataStream.writeData({
+                  type: 'assistantMessage' as any,
+                  content: orchestratorResult.artifactText,
+                });
+
+                dataStream.writeData({
+                  type: 'progress',
+                  label: 'response',
+                  status: 'complete',
+                  order: progressCounter++,
+                  message: `Build complete — ${orchestratorResult.taskResults.filter((r) => r.success).length}/${orchestratorResult.taskResults.length} tasks succeeded`,
+                } satisfies ProgressAnnotation);
+
+                streamRecovery?.stop();
+
+                return; // Skip the normal generation loop — orchestrator handled it
+              }
+            } catch (orchestratorErr) {
+              logger.warn(
+                `Orchestrator failed: ${orchestratorErr instanceof Error ? orchestratorErr.message : String(orchestratorErr)}, falling back to normal generation`,
+              );
+
+              // Fall through to normal generation
+              dataStream.writeData({
+                type: 'progress',
+                label: 'orchestrator',
+                status: 'error',
+                order: progressCounter++,
+                message: 'Orchestrator failed, falling back to direct generation...',
+              } satisfies ProgressAnnotation);
+            }
+          }
+        }
 
         /*
          * Stream recovery — constructed here (after processedMessages is
