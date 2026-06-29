@@ -262,6 +262,19 @@ export async function orchestrateBuild(
   const startTime = Date.now();
   const taskResults: OrchestratorResult['taskResults'] = [];
 
+  /*
+   * Keep-alive timer: sends a progress message every 5 seconds to prevent
+   * the HTTP connection from being dropped during long task execution.
+   * Without this, the browser/proxy may close the connection after 60-120s
+   * of inactivity, killing the orchestrator mid-task.
+   */
+  const keepAlive = setInterval(() => {
+    onProgress({
+      type: 'task_start',
+      message: `⏳ Working... (${Math.round((Date.now() - startTime) / 1000)}s elapsed)`,
+    });
+  }, 5000);
+
   try {
     // Phase 1: Decompose
     const plan = await decompose(prompt, model, onProgress);
@@ -390,5 +403,7 @@ __PALMKIT_DONE__`;
       taskResults,
       totalDuration: Date.now() - startTime,
     };
+  } finally {
+    clearInterval(keepAlive);
   }
 }
