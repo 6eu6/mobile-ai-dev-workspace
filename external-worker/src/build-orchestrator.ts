@@ -78,37 +78,100 @@ async function decompose(
 ): Promise<OrchestratorPlan> {
   logger.info(`[orchestrator] Decomposing task (${prompt.length} chars)`);
 
-  const systemPrompt = `You are a project planner for an AI app builder. Break the user's request into 3-8 sequential tasks.
+  const systemPrompt = `You are a project planner for an AI app builder. Break the user's request into 5-8 sequential tasks.
 
-RULES:
-1. Each task should produce code that fits in 1000-3000 chars
-2. Order by dependency: foundation first, then components, then assembly
-3. For single-file apps, each task adds a SECTION to the same file
-4. For multi-file apps, each task creates or updates ONE file
-5. Be specific about what to create
+CRITICAL RULES:
+1. Each task MUST produce code that fits in 2000-4000 chars (NOT smaller)
+2. Order by dependency: HTML shell first, then CSS, then components, then sections, then assembly
+3. For single-file apps (HTML/CSS/JS), each task APPENDS content to the same index.html file
+4. Be VERY SPECIFIC about what to create — mention exact class names, component names, content
+5. NEVER combine unrelated things in one task (e.g., don't put CSS + JS + HTML in one task)
+6. The LAST task must be "App Assembly" that wires everything together
 
-OUTPUT FORMAT (strict JSON):
-{"reasoning":"1-2 sentences","tasks":[{"id":1,"name":"Short name","file":"index.html","description":"What to generate"}]}`;
+OUTPUT FORMAT — return ONLY valid JSON, no markdown, no explanation:
+{"reasoning":"1-2 sentences","tasks":[{"id":1,"name":"Short name","file":"index.html","description":"Detailed description of what to generate in this task, including specific elements, classes, and content"}]}
+
+EXAMPLE for "Build a landing page with hero and features":
+{"reasoning":"Single HTML file with CDN scripts, built incrementally","tasks":[{"id":1,"name":"HTML shell + CDN scripts","file":"index.html","description":"Create index.html with: DOCTYPE, html, head with Tailwind CDN script, React 18 CDN, Babel standalone, Google Fonts links, title, and body with #root div and empty script type=text/babel"},{"id":2,"name":"CSS utilities + base styles","file":"index.html","description":"Add a style block in head with: body background #000, custom CSS classes like .liquid-glass with backdrop-filter blur, .liquid-glass-strong, gradient borders via ::before with mask-composite, font-family setup"},{"id":3,"name":"Video component","file":"index.html","description":"Add a FadingVideo React component: wraps video element, uses requestAnimationFrame for crossfade, handles loadeddata/timeupdate/ended events, manual looping"},{"id":4,"name":"Navbar + Hero section","file":"index.html","description":"Add Navbar component (fixed top, liquid-glass pill, links) and Hero component (badge, headline, subheading, CTAs, stats cards)"},{"id":5,"name":"Features + Partners + Assembly","file":"index.html","description":"Add Features section (3 cards with icons) and Partners row (5 names). Then add App component that renders all sections, and ReactDOM.render to mount"}]}`;
 
   const result = await generateText({
     model,
     system: systemPrompt,
-    prompt: `Break this into tasks:\n\n${prompt}`,
-    maxTokens: 2000,
-    temperature: 0.3,
+    prompt: `Break this build request into 5-8 tasks. Return ONLY JSON:\n\n${prompt}`,
+    maxTokens: 3000,
+    temperature: 0.2,
   });
 
-  try {
-    const jsonMatch = result.text?.match(/\{[\s\S]*\}/);
-    const plan = JSON.parse(jsonMatch?.[0] ?? result.text ?? '{}') as OrchestratorPlan;
+  const rawText = result.text ?? '';
+  logger.info(`[orchestrator] Decompose response: ${rawText.length} chars`);
 
-    if (!plan.tasks?.length) throw new Error('No tasks in plan');
+  try {
+    // Try to extract JSON — handle markdown fences
+    let jsonStr = rawText;
+
+    // Strip markdown code fences if present
+    const fenceMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/);
+
+    if (fenceMatch) {
+      jsonStr = fenceMatch[1].trim();
+    }
+
+    // Find the JSON object
+    const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
+    const plan = JSON.parse(jsonMatch?.[0] ?? jsonStr ?? '{}') as OrchestratorPlan;
+
+    if (!plan.tasks?.length) {
+      throw new Error('No tasks in plan');
+    }
+
+    // Validate each task has required fields
+    for (const task of plan.tasks) {
+      if (!task.name || !task.file || !task.description) {
+        throw new Error(`Task ${task.id} missing required fields`);
+      }
+    }
+
+    logger.info(`[orchestrator] Plan: ${plan.tasks.length} tasks — ${plan.tasks.map((t) => t.name).join(' → ')}`);
 
     return plan;
-  } catch {
+  } catch (parseErr) {
+    logger.warn(`[orchestrator] Failed to parse decomposition plan (${parseErr instanceof Error ? parseErr.message : String(parseErr)}), raw: ${rawText.substring(0, 200)}`);
+
+    // IMPROVED fallback: create a reasonable 5-task plan based on the prompt
     return {
-      reasoning: 'Single task fallback',
-      tasks: [{ id: 1, name: 'Build project', file: 'index.html', description: prompt }],
+      reasoning: 'Fallback 5-task plan (decomposer failed)',
+      tasks: [
+        {
+          id: 1,
+          name: 'HTML shell + CDN scripts + base CSS',
+          file: 'index.html',
+          description: `Create index.html with: DOCTYPE, head with Tailwind CDN (cdn.tailwindcss.com), React 18 CDN (unpkg react@18.3.1/umd/react.development.js), ReactDOM CDN, Babel standalone, Google Fonts. Add a style block with all custom CSS from the prompt (liquid-glass, etc). Body bg #000, #root div, empty script type=text/babel. Request: ${prompt.substring(0, 500)}`,
+        },
+        {
+          id: 2,
+          name: 'Core components (video, animations)',
+          file: 'index.html',
+          description: `Add React components: FadingVideo (custom crossfade with requestAnimationFrame), BlurText (word-by-word animation), and any other custom components mentioned in the prompt. Request: ${prompt.substring(0, 500)}`,
+        },
+        {
+          id: 3,
+          name: 'Hero section + Navbar',
+          file: 'index.html',
+          description: `Add Navbar component and Hero section with all elements from the prompt: badge, headline, subheading, CTAs, stats cards, partners row. Request: ${prompt.substring(0, 500)}`,
+        },
+        {
+          id: 4,
+          name: 'Remaining sections + content',
+          file: 'index.html',
+          description: `Add all remaining sections from the prompt (Capabilities, Features, etc). Include all specific content, text, and elements mentioned. Request: ${prompt.substring(0, 500)}`,
+        },
+        {
+          id: 5,
+          name: 'App assembly + render',
+          file: 'index.html',
+          description: `Add App component that renders all sections in order, then ReactDOM.render(<App/>, document.getElementById('root')). Ensure all components are properly defined and exported via window.X = X. Request: ${prompt.substring(0, 500)}`,
+        },
+      ],
     };
   }
 }
@@ -162,7 +225,7 @@ Generate the ${existingContent ? 'updated' : 'complete'} ${task.file} file now.`
     model,
     system: systemPrompt,
     prompt: userPrompt,
-    maxTokens: 8000,
+    maxTokens: 12000,
     temperature: 0.7,
   });
 
