@@ -294,6 +294,7 @@ export async function processNextJob(supabase: SupabaseClient): Promise<void> {
           job.id,
           supabase,
           projectId, // chatId — links workspace to the IndexedDB chat
+          job.user_id, // userId — for Supabase Storage mirroring
         );
 
         if (agentResult.success && agentResult.files.length > 0) {
@@ -511,18 +512,34 @@ export async function processNextJob(supabase: SupabaseClient): Promise<void> {
       await emitFileWritten(supabase, job.id, file.path, lineCount, sizeBytes);
 
       // Mirror to Supabase Storage (read-through cache for the browser).
-      const sbKey = `${job.user_id}/${legacyKey}`;
+      // Mirror BOTH the legacy key AND the workspace key so /api/workspace
+      // can read files by chatId.
+      const sbLegacyKey = `${job.user_id}/${legacyKey}`;
+      const sbWorkspaceKey = `${job.user_id}/${workspaceKey}`;
 
       try {
+        // Mirror workspace key (new — for /api/workspace)
+        const { error: sbWsError } = await supabase.storage
+          .from('palmkit-files')
+          .upload(sbWorkspaceKey, content, {
+            contentType: file.mime_type ?? 'text/plain',
+            upsert: true,
+          });
+
+        if (sbWsError) {
+          logger.warn(`Supabase Storage workspace mirror failed for ${file.path}: ${sbWsError.message} (non-fatal)`);
+        }
+
+        // Mirror legacy key (for /api/files backward compat)
         const { error: sbUploadError } = await supabase.storage
           .from('palmkit-files')
-          .upload(sbKey, content, {
+          .upload(sbLegacyKey, content, {
             contentType: file.mime_type ?? 'text/plain',
             upsert: true,
           });
 
         if (sbUploadError) {
-          logger.warn(`Supabase Storage mirror failed for ${file.path}: ${sbUploadError.message} (non-fatal, R2 has the copy)`);
+          logger.warn(`Supabase Storage legacy mirror failed for ${file.path}: ${sbUploadError.message} (non-fatal)`);
         }
       } catch (sbErr: any) {
         logger.warn(`Supabase Storage mirror exception for ${file.path}: ${sbErr.message} (non-fatal)`);

@@ -19,6 +19,7 @@
 
 import { putFile, getFileText, buildWorkspaceKey, buildWorklogKey, buildManifestKey, listObjects } from './r2-client';
 import { logger } from './logger';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 export interface ProjectManifest {
   projectId: string;
@@ -30,6 +31,36 @@ export interface ProjectManifest {
   fileCount: number;
   sandboxId: string | null;
   sandboxState: 'running' | 'paused' | null;
+}
+
+/**
+ * Mirror a file to Supabase Storage so /api/workspace (which reads from
+ * Supabase Storage, not R2 directly) can access it.
+ *
+ * The Supabase Storage key is: {userId}/projects/{projectId}/workspace/{path}
+ * This matches what /api/workspace expects.
+ */
+async function mirrorToSupabaseStorage(
+  supabase: SupabaseClient,
+  userId: string,
+  projectId: string,
+  filePath: string,
+  content: string,
+  contentType: string = 'text/plain',
+): Promise<void> {
+  try {
+    const storageKey = `${userId}/projects/${projectId}/workspace/${filePath}`;
+    const { error } = await supabase.storage.from('palmkit-files').upload(storageKey, content, {
+      contentType,
+      upsert: true,
+    });
+
+    if (error) {
+      logger.warn(`[workspace] Supabase Storage mirror failed for ${filePath}: ${error.message}`);
+    }
+  } catch (e) {
+    logger.warn(`[workspace] Supabase Storage mirror exception for ${filePath}: ${e}`);
+  }
 }
 
 /**
@@ -49,8 +80,15 @@ export async function readWorklog(projectId: string): Promise<string | null> {
 /**
  * Append to the worklog. Used after each build to record what was done.
  * If the worklog doesn't exist, create it with a header.
+ *
+ * Also mirrors to Supabase Storage so /api/workspace can read it.
  */
-export async function appendToWorklog(projectId: string, entry: string): Promise<void> {
+export async function appendToWorklog(
+  projectId: string,
+  entry: string,
+  supabase?: SupabaseClient,
+  userId?: string,
+): Promise<void> {
   try {
     const key = buildWorklogKey(projectId);
     const existing = (await getFileText(key)) || '';
@@ -63,6 +101,12 @@ export async function appendToWorklog(projectId: string, entry: string): Promise
       : `# Project Worklog\n\nThis file is the project's memory. The AI agent reads it at the start of every build to understand context.\n${newEntry}`;
 
     await putFile(key, updated);
+
+    // Mirror to Supabase Storage so /api/workspace can read it
+    if (supabase && userId) {
+      await mirrorToSupabaseStorage(supabase, userId, projectId, 'worklog.md', updated, 'text/markdown');
+    }
+
     logger.info(`[workspace] Appended to worklog for ${projectId} (${entry.length} chars)`);
   } catch (e) {
     logger.warn(`[workspace] Failed to append to worklog for ${projectId}: ${e}`);
@@ -99,11 +143,24 @@ export async function readManifest(projectId: string): Promise<ProjectManifest> 
 
 /**
  * Write the manifest for a project.
+ *
+ * Also mirrors to Supabase Storage so /api/workspace can read it.
  */
-export async function writeManifest(manifest: ProjectManifest): Promise<void> {
+export async function writeManifest(
+  manifest: ProjectManifest,
+  supabase?: SupabaseClient,
+  userId?: string,
+): Promise<void> {
   try {
     const key = buildManifestKey(manifest.projectId);
-    await putFile(key, JSON.stringify(manifest, null, 2));
+    const content = JSON.stringify(manifest, null, 2);
+    await putFile(key, content);
+
+    // Mirror to Supabase Storage so /api/workspace can read it
+    if (supabase && userId) {
+      await mirrorToSupabaseStorage(supabase, userId, manifest.projectId, 'manifest.json', content, 'application/json');
+    }
+
     logger.info(`[workspace] Wrote manifest for ${manifest.projectId}`);
   } catch (e) {
     logger.warn(`[workspace] Failed to write manifest for ${manifest.projectId}: ${e}`);

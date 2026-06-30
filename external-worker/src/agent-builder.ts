@@ -59,6 +59,7 @@ export async function runAgentBuild(
   jobId: string,
   supabase: SupabaseClient,
   projectId: string,
+  userId: string,
 ): Promise<AgentBuildResult> {
   const startTime = Date.now();
   resetProjectFiles();
@@ -217,14 +218,14 @@ the memory above.`
           summary,
           duration,
         });
-        await appendToWorklog(projectId, worklogEntry);
+        await appendToWorklog(projectId, worklogEntry, supabase, userId);
 
         // Update the manifest with the new build info
         const manifest = await readManifest(projectId);
         manifest.lastBuildAt = new Date().toISOString();
         manifest.lastBuildSummary = summary?.slice(0, 200) || null;
         manifest.fileCount = fileCount;
-        await writeManifest(manifest);
+        await writeManifest(manifest, supabase, userId);
 
         logger.info(`[agent] Worklog + manifest updated for ${projectId}`);
       } catch (e) {
