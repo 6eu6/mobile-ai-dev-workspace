@@ -524,7 +524,21 @@ export function useChatHistory() {
 
             setArchivedMessages(archivedMsgs);
 
-            if (startingIdx > 0) {
+            /*
+             * BUG FIX (2026-06-29): If the snapshot has NO files (e.g. the build
+             * was interrupted before any files were saved), DON'T create a fake
+             * "restored-project-setup" artifact. Doing so would queue empty file
+             * actions and the Artifact component would stay stuck on
+             * "Restoring Project..." forever (because allActionFinished never
+             * flips to true — there are no actions to complete).
+             *
+             * Instead, skip the restore branch entirely and fall through to the
+             * simple "show messages as-is" path (the else branch at line ~651
+             * which just sets restoreStep to 'done').
+             */
+            const snapshotHasFilesForRestore = !!(validSnapshot?.files && Object.keys(validSnapshot.files).length > 0);
+
+            if (startingIdx > 0 && snapshotHasFilesForRestore) {
               // A) Restore UX: Step - restoring files
               setRestoreStep('restoring-files');
 
