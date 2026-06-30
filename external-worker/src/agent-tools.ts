@@ -234,6 +234,57 @@ export function createAgentTools(
     }),
 
     // ═══════════════════════════════════════════════════════════════════
+    // search_code — Search across all project files (like Super Z's Grep)
+    // ═══════════════════════════════════════════════════════════════════
+    search_code: tool({
+      description:
+        'Search for a pattern across all project files. Returns matching lines with file paths and line numbers. ' +
+        'Use this to find where a function, variable, import, or string is used.',
+      parameters: z.object({
+        pattern: z
+          .string()
+          .describe('The text or regex pattern to search for, e.g. "useState" or "app.get"'),
+      }),
+      execute: async ({ pattern }) => {
+        const results: Array<{ path: string; line: number; text: string }> = [];
+
+        try {
+          const regex = new RegExp(pattern, 'gi');
+
+          for (const [path, content] of projectFiles.entries()) {
+            const lines = content.split('\n');
+            for (let i = 0; i < lines.length; i++) {
+              if (regex.test(lines[i])) {
+                results.push({ path, line: i + 1, text: lines[i].trim().slice(0, 120) });
+              }
+              regex.lastIndex = 0; // reset regex state
+            }
+          }
+        } catch (e) {
+          // If regex fails, do a simple string search
+          const lowerPattern = pattern.toLowerCase();
+
+          for (const [path, content] of projectFiles.entries()) {
+            const lines = content.split('\n');
+            for (let i = 0; i < lines.length; i++) {
+              if (lines[i].toLowerCase().includes(lowerPattern)) {
+                results.push({ path, line: i + 1, text: lines[i].trim().slice(0, 120) });
+              }
+            }
+          }
+        }
+
+        logger.info(`[agent] search_code: "${pattern}" → ${results.length} matches`);
+
+        return {
+          pattern,
+          totalMatches: results.length,
+          results: results.slice(0, 50), // cap at 50 results
+        };
+      },
+    }),
+
+    // ═══════════════════════════════════════════════════════════════════
     // run_shell — Run a shell command in E2B sandbox (like Super Z's Bash)
     // ═══════════════════════════════════════════════════════════════════
     run_shell: tool({

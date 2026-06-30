@@ -31,6 +31,55 @@ export interface ProjectManifest {
   fileCount: number;
   sandboxId: string | null;
   sandboxState: 'running' | 'paused' | null;
+  /*
+   * Smart manifest fields (2026-06-30 upgrade).
+   * These give the agent a "map" of the project so it doesn't
+   * have to read every file to understand the project.
+   */
+  schemaVersion?: number;
+  projectType?: string; // e.g. "fullstack", "frontend", "static"
+  stack?: {
+    frontend?: string;
+    backend?: string;
+    database?: string;
+    styling?: string;
+  };
+  entrypoints?: {
+    frontend?: string;
+    backend?: string;
+    html?: string;
+  };
+  importantFiles?: string[];
+  commands?: {
+    install?: string;
+    dev?: string;
+    build?: string;
+    test?: string;
+    lint?: string;
+  };
+  apiRoutes?: string[];
+  qualityGates?: {
+    mustBuild?: boolean;
+    mustPassTests?: boolean;
+    mustAvoidPlaceholders?: boolean;
+  };
+  lastKnownStatus?: string; // "build_passed", "build_failed", "tests_passed", etc.
+  knownIssues?: string[];
+}
+
+/**
+ * .palmkit/ memory layer files.
+ * These give the agent structured memory instead of just a short worklog.
+ */
+export interface PalmkitMemory {
+  projectMd: string;        // Human-readable project description
+  currentTask: string;      // What the agent should do now
+  decisions: string;        // Why certain choices were made
+  agentInstructions: string; // How the agent should work on this project
+  apiMap: object | null;    // API routes and contracts
+  fileMap: object | null;   // File → purpose mapping
+  testResults: object | null; // Last test run results
+  errors: string[];         // Recent errors
 }
 
 /**
@@ -238,4 +287,314 @@ export function generateWorklogEntry(params: {
   }
 
   return lines.join('\n');
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// .palmkit/ Memory Layer
+// ═════════════════════════════════════════════════════════════════════
+
+const PALMKIT_PREFIX = '.palmkit';
+
+function buildPalmkitKey(projectId: string, filename: string): string {
+  return buildWorkspaceKey(projectId, `${PALMKIT_PREFIX}/${filename}`);
+}
+
+/**
+ * Read all .palmkit/ memory files for a project.
+ * Returns null for any file that doesn't exist.
+ */
+export async function readPalmkitMemory(projectId: string): Promise<PalmkitMemory> {
+  const read = async (filename: string): Promise<string> => {
+    try {
+      return (await getFileText(buildPalmkitKey(projectId, filename))) || '';
+    } catch {
+      return '';
+    }
+  };
+
+  const readJson = async (filename: string): Promise<object | null> => {
+    try {
+      const text = await read(filename);
+      return text ? JSON.parse(text) : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const [projectMd, currentTask, decisions, agentInstructions, apiMap, fileMap, testResults, errorsText] =
+    await Promise.all([
+      read('project.md'),
+      read('current-task.md'),
+      read('decisions.md'),
+      read('agent-instructions.md'),
+      readJson('api-map.json'),
+      readJson('file-map.json'),
+      readJson('test-results.json'),
+      read('errors.json'),
+    ]);
+
+  let errors: string[] = [];
+
+  try {
+    errors = errorsText ? JSON.parse(errorsText) : [];
+  } catch {
+    errors = [];
+  }
+
+  return { projectMd, currentTask, decisions, agentInstructions, apiMap, fileMap, testResults, errors };
+}
+
+/**
+ * Write a .palmkit/ memory file.
+ */
+export async function writePalmkitFile(
+  projectId: string,
+  filename: string,
+  content: string,
+  supabase?: SupabaseClient,
+  userId?: string,
+): Promise<void> {
+  try {
+    const key = buildPalmkitKey(projectId, filename);
+    await putFile(key, content);
+
+    if (supabase && userId) {
+      await mirrorToSupabaseStorage(supabase, userId, projectId, `${PALMKIT_PREFIX}/${filename}`, content);
+    }
+  } catch (e) {
+    logger.warn(`[workspace] Failed to write .palmkit/${filename}: ${e}`);
+  }
+}
+
+/**
+ * Generate a smart manifest from the build results.
+ * This gives the agent a "map" of the project.
+ */
+export function generateSmartManifest(params: {
+  projectId: string;
+  appType: string | null;
+  files: Record<string, string>;
+  prompt: string;
+  summary?: string;
+}): Partial<ProjectManifest> {
+  const { projectId, appType, files, prompt, summary } = params;
+  const filePaths = Object.keys(files);
+
+  // Detect stack from files
+  const hasReact = filePaths.some((p) => p.endsWith('.jsx') || p.endsWith('.tsx'));
+  const hasVue = filePaths.some((p) => p.endsWith('.vue'));
+  const hasExpress = filePaths.some((p) => p.includes('server/') || p.includes('express'));
+  const hasPrisma = filePaths.some((p) => p.endsWith('.prisma') || p.includes('prisma'));
+  const hasTailwind = filePaths.some((p) => p.includes('tailwind'));
+  const hasVite = filePaths.some((p) => p.includes('vite.config'));
+
+  // Detect entrypoints
+  const frontendEntry = filePaths.find((p) => p.match(/src\/main\.(jsx|tsx|js|ts)$/));
+  const backendEntry = filePaths.find((p) => p.match(/server\/index\.(js|ts)$/));
+  const htmlEntry = filePaths.find((p) => p === 'index.html' || p === 'public/index.html');
+
+  // Detect API routes from server code
+  const apiRoutes: string[] = [];
+  for (const [path, content] of Object.entries(files)) {
+    if (path.includes('server/') && path.endsWith('.js')) {
+      const routeMatches = content.matchAll(/(?:app|router)\.(get|post|put|delete|patch)\s*\(\s*['"`]([^'"`]+)/gi);
+      for (const match of routeMatches) {
+        apiRoutes.push(`${match[1].toUpperCase()} ${match[2]}`);
+      }
+    }
+  }
+
+  // Detect commands from package.json
+  const packageJson = files['package.json'];
+
+  let commands: ProjectManifest['commands'] = { install: 'npm install' };
+
+  if (packageJson) {
+    try {
+      const pkg = JSON.parse(packageJson);
+      const scripts = pkg.scripts || {};
+      commands = {
+        install: 'npm install',
+        dev: scripts.dev || undefined,
+        build: scripts.build || undefined,
+        test: scripts.test || undefined,
+        lint: scripts.lint || undefined,
+      };
+    } catch {
+      // best-effort
+    }
+  }
+
+  // Determine project type
+  const projectType = hasExpress && hasReact ? 'fullstack' : hasReact ? 'frontend' : 'static';
+
+  return {
+    schemaVersion: 1,
+    projectId,
+    appType,
+    projectType,
+    stack: {
+      frontend: hasReact ? 'React' : hasVue ? 'Vue' : undefined,
+      backend: hasExpress ? 'Express' : undefined,
+      database: hasPrisma ? 'Prisma + SQLite' : undefined,
+      styling: hasTailwind ? 'Tailwind CSS' : undefined,
+    },
+    entrypoints: {
+      frontend: frontendEntry,
+      backend: backendEntry,
+      html: htmlEntry,
+    },
+    importantFiles: filePaths
+      .filter((p) => p.match(/(App|index|server|schema|package\.json|vite\.config)/i))
+      .slice(0, 10),
+    commands,
+    apiRoutes: apiRoutes.length > 0 ? apiRoutes : undefined,
+    qualityGates: {
+      mustBuild: hasVite,
+      mustPassTests: false,
+      mustAvoidPlaceholders: true,
+    },
+    lastKnownStatus: 'build_passed',
+    knownIssues: [],
+    fileCount: filePaths.length,
+    lastBuildSummary: summary?.slice(0, 200) || null,
+  };
+}
+
+/**
+ * Generate .palmkit/ memory files from the build results.
+ * Called after the agent finishes building.
+ */
+export async function writePalmkitMemory(
+  projectId: string,
+  params: {
+    prompt: string;
+    files: Record<string, string>;
+    appType: string | null;
+    summary?: string;
+    manifest: Partial<ProjectManifest>;
+  },
+  supabase?: SupabaseClient,
+  userId?: string,
+): Promise<void> {
+  const { prompt, files, appType, summary, manifest } = params;
+
+  // project.md — human-readable project description
+  const projectMd = [
+    `# Project: ${manifest.projectType || 'Unknown'}`,
+    '',
+    `**Type**: ${manifest.projectType || 'N/A'}`,
+    `**Stack**: ${manifest.stack?.frontend || ''} ${manifest.stack?.backend || ''} ${manifest.stack?.database || ''}`.trim(),
+    `**App Type**: ${appType || 'N/A'}`,
+    `**Files**: ${Object.keys(files).length}`,
+    '',
+    '## Entrypoints',
+    `- Frontend: ${manifest.entrypoints?.frontend || 'N/A'}`,
+    `- Backend: ${manifest.entrypoints?.backend || 'N/A'}`,
+    `- HTML: ${manifest.entrypoints?.html || 'N/A'}`,
+    '',
+    '## Commands',
+    Object.entries(manifest.commands || {})
+      .map(([k, v]) => `- ${k}: \`${v}\``)
+      .join('\n'),
+    '',
+    '## API Routes',
+    (manifest.apiRoutes || []).map((r) => `- ${r}`).join('\n'),
+    '',
+    '## Original Prompt',
+    prompt.slice(0, 500),
+  ].join('\n');
+
+  await writePalmkitFile(projectId, 'project.md', projectMd, supabase, userId);
+
+  // decisions.md — why certain choices were made
+  const decisionsMd = [
+    '# Decisions Log',
+    '',
+    `## ${new Date().toISOString()}`,
+    `- **Framework**: ${manifest.stack?.frontend || 'N/A'} — chosen based on user prompt`,
+    `- **Backend**: ${manifest.stack?.backend || 'None'} — ${hasExpress(files) ? 'needed for API' : 'not required'}`,
+    `- **Database**: ${manifest.stack?.database || 'None'} — ${hasPrisma(files) ? 'user requested persistence' : 'not required'}`,
+    `- **Styling**: ${manifest.stack?.styling || 'CSS'} — standard choice for this stack`,
+  ].join('\n');
+
+  await writePalmkitFile(projectId, 'decisions.md', decisionsMd, supabase, userId);
+
+  // agent-instructions.md — how the agent should work on this project
+  const agentInstructions = [
+    '# Agent Instructions',
+    '',
+    '## Work Cycle (MANDATORY)',
+    '1. Read .palmkit/current-task.md to understand what to do',
+    '2. Read .palmkit/manifest.json for project map',
+    '3. Read only the files you need to modify (use importantFiles list)',
+    '4. Write a brief plan before editing',
+    '5. Apply changes with write_file',
+    '6. Run tests/build with run_shell to verify',
+    '7. Update .palmkit/test-results.json with results',
+    '8. Update .palmkit/current-task.md with what was done',
+    '',
+    '## Project Rules',
+    `- This is a ${manifest.projectType || 'unknown'} project`,
+    `- Entry point: ${manifest.entrypoints?.frontend || manifest.entrypoints?.html || 'unknown'}`,
+    `- Build command: ${manifest.commands?.build || 'npm run build'}`,
+    `- Test command: ${manifest.commands?.test || 'npm test'}`,
+    '',
+    '## Quality Gates',
+    `- Must build: ${manifest.qualityGates?.mustBuild ? 'YES' : 'NO'}`,
+    `- Must pass tests: ${manifest.qualityGates?.mustPassTests ? 'YES' : 'NO'}`,
+    `- Must avoid placeholders: YES`,
+  ].join('\n');
+
+  await writePalmkitFile(projectId, 'agent-instructions.md', agentInstructions, supabase, userId);
+
+  // api-map.json — API routes and contracts
+  if (manifest.apiRoutes && manifest.apiRoutes.length > 0) {
+    const apiMap: Record<string, { method: string; path: string }> = {};
+    for (const route of manifest.apiRoutes) {
+      const [method, path] = route.split(' ');
+      apiMap[route] = { method, path };
+    }
+    await writePalmkitFile(projectId, 'api-map.json', JSON.stringify(apiMap, null, 2), supabase, userId);
+  }
+
+  // file-map.json — file → purpose mapping
+  const fileMap: Record<string, string> = {};
+  for (const [path, content] of Object.entries(files)) {
+    let purpose = 'unknown';
+    if (path.endsWith('.jsx') || path.endsWith('.tsx')) {
+      purpose = content.includes('export default') ? 'React component' : 'React module';
+    } else if (path.endsWith('.prisma')) {
+      purpose = 'Prisma database schema';
+    } else if (path.includes('server/')) {
+      purpose = 'Backend server code';
+    } else if (path === 'package.json') {
+      purpose = 'Project dependencies and scripts';
+    } else if (path.endsWith('.css')) {
+      purpose = 'Stylesheet';
+    } else if (path.endsWith('.html')) {
+      purpose = 'HTML entry point';
+    } else if (path.includes('vite.config')) {
+      purpose = 'Vite build configuration';
+    }
+    fileMap[path] = purpose;
+  }
+  await writePalmkitFile(projectId, 'file-map.json', JSON.stringify(fileMap, null, 2), supabase, userId);
+
+  // errors.json — empty initially
+  await writePalmkitFile(projectId, 'errors.json', JSON.stringify([], null, 2), supabase, userId);
+
+  // test-results.json — empty initially
+  await writePalmkitFile(projectId, 'test-results.json', JSON.stringify({ ran: false, passed: 0, failed: 0 }, null, 2), supabase, userId);
+
+  logger.info(`[workspace] .palmkit/ memory layer written for ${projectId}`);
+}
+
+// Helper functions for manifest generation
+function hasExpress(files: Record<string, string>): boolean {
+  return Object.keys(files).some((p) => p.includes('server/') || p.includes('express'));
+}
+
+function hasPrisma(files: Record<string, string>): boolean {
+  return Object.keys(files).some((p) => p.endsWith('.prisma') || p.includes('prisma'));
 }

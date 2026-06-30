@@ -22,7 +22,16 @@ import { logger } from './logger';
 import { emitEvent } from './event-emitter';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { FileOperation } from './generator';
-import { readWorklog, appendToWorklog, readManifest, writeManifest, generateWorklogEntry } from './workspace-manager';
+import {
+  readWorklog,
+  appendToWorklog,
+  readManifest,
+  writeManifest,
+  generateWorklogEntry,
+  readPalmkitMemory,
+  generateSmartManifest,
+  writePalmkitMemory,
+} from './workspace-manager';
 
 export interface AgentBuildResult {
   success: boolean;
@@ -97,10 +106,13 @@ AVAILABLE TOOLS:
 - list_files(): List all files you've written in this session.
 - list_uploads(): List files the user has uploaded (in uploads/ folder).
   Use this first to see if the user provided any files to work with.
+- search_code(pattern): Search for a pattern across all project files.
+  Returns matching lines with file paths and line numbers.
+  Use this to find where a function, import, or string is used.
 - run_shell(command): Run a shell command in an isolated E2B sandbox.
   The sandbox has ALL your project files at /home/user/project.
   Supports: npm install, npm run build, npx prisma generate, npx prisma db push,
-  python scripts, ls, cat, grep, find, and any other shell command.
+  npm test, python scripts, ls, cat, grep, find, and any other shell command.
   The sandbox is ephemeral (destroyed after the command) — don't rely on
   state persisting between commands.
 - done(summary): Call when ALL files are written and the project is complete.
@@ -118,11 +130,11 @@ WORKSPACE STRUCTURE:
 - worklog.md        : Project memory (you read this, the system writes to it)
 - manifest.json     : Project metadata (managed by the system)
 
-HOW TO WORK (like a senior developer):
+HOW TO WORK (MANDATORY work cycle — follow these steps in order):
 1. Read the worklog (if provided below) to understand project history
 2. Call list_uploads() to check if the user provided any files
 3. If editing an existing project, use read_file to see current files
-4. Plan what files you need to create or modify
+4. Plan what files you need to create or modify (brief mental plan)
 5. Write each file with COMPLETE content — no placeholders, no truncation
 6. If the project needs a database:
    a. Create data/schema.prisma with your Prisma schema
@@ -130,7 +142,8 @@ HOW TO WORK (like a senior developer):
    c. Add a datasource block pointing to file:./data/db.sqlite
    d. Use run_shell("npx prisma generate && npx prisma db push") to create the DB
 7. Use run_shell to verify: "npm install && npm run build" or similar
-8. When ALL files are written and verified, call done()
+8. If build fails, read the error, fix the file, and retry
+9. When ALL files are written and verified, call done()
 
 CRITICAL RULES:
 - Write COMPLETE file content — no placeholders, no "...", no truncation
@@ -275,33 +288,64 @@ the memory above.`
         { fileCount, finishReason },
       );
 
-      // ─── Write worklog + manifest (the project's memory) ───
+      // ─── Write worklog + manifest + .palmkit/ memory layer ───
       // This is what makes Palmkit a "workspace" instead of just a "file generator".
       // The worklog is read at the start of the NEXT build, giving the agent context.
+      // The .palmkit/ memory layer gives the agent a structured project map.
       try {
         const duration = Date.now() - startTime;
         const summary = fullText.slice(-500).trim() || undefined;
 
+        // 1. Append to worklog (chronological history)
         const worklogEntry = generateWorklogEntry({
           prompt,
           fileCount,
           totalSize,
           summary,
+          appType,
           duration,
         });
         await appendToWorklog(projectId, worklogEntry, supabase, userId);
 
-        // Update the manifest with the new build info
+        // 2. Generate smart manifest (project map with stack, entrypoints, commands, API routes)
+        const smartManifest = generateSmartManifest({
+          projectId,
+          appType: appType ?? null,
+          files,
+          prompt,
+          summary,
+        });
+
+        // 3. Write manifest (merge smart fields with existing manifest)
         const manifest = await readManifest(projectId);
         manifest.lastBuildAt = new Date().toISOString();
         manifest.lastBuildSummary = summary?.slice(0, 200) || null;
         manifest.fileCount = fileCount;
         manifest.appType = appType ?? manifest.appType;
+        // Merge smart fields
+        manifest.schemaVersion = smartManifest.schemaVersion;
+        manifest.projectType = smartManifest.projectType;
+        manifest.stack = smartManifest.stack;
+        manifest.entrypoints = smartManifest.entrypoints;
+        manifest.importantFiles = smartManifest.importantFiles;
+        manifest.commands = smartManifest.commands;
+        manifest.apiRoutes = smartManifest.apiRoutes;
+        manifest.qualityGates = smartManifest.qualityGates;
+        manifest.lastKnownStatus = smartManifest.lastKnownStatus;
+        manifest.knownIssues = smartManifest.knownIssues;
         await writeManifest(manifest, supabase, userId);
 
-        logger.info(`[agent] Worklog + manifest updated for ${projectId}`);
+        // 4. Write .palmkit/ memory layer (structured memory for the agent)
+        await writePalmkitMemory(
+          projectId,
+          { prompt, files, appType: appType ?? null, summary, manifest: smartManifest },
+          supabase,
+          userId,
+        );
+
+        logger.info(`[agent] Worklog + manifest + .palmkit/ memory updated for ${projectId}`);
       } catch (e) {
-        logger.warn(`[agent] Failed to update worklog/manifest: ${e}`);
+        logger.warn(`[agent] Failed to update worklog/manifest/memory: ${e}`);
         // Non-fatal — the build itself succeeded
       }
     } else {
