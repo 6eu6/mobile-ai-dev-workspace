@@ -107,6 +107,15 @@ export async function action(args: ActionFunctionArgs) {
         model,
         provider,
         fileCount: Object.keys(files ?? {}).length,
+
+        /*
+         * Store the chat ID (projectId) in validation_result so we can
+         * query build_jobs by chat ID later. This links the build job to
+         * the IndexedDB chat, enabling workspace file restore on reload.
+         * We use validation_result (jsonb) instead of adding a new column
+         * because we can't run DDL via the REST API.
+         */
+        ...(projectId ? { chatId: projectId } : {}),
         ...(maxCompletionTokens ? { maxCompletionTokens } : {}),
         ...(editJobId ? { editJobId } : {}),
       },

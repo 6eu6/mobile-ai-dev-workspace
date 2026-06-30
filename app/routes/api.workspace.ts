@@ -72,11 +72,16 @@ function inferMime(path: string): string {
  * has at least one build job with that project_id.
  */
 async function verifyProjectOwnership(supabase: any, userId: string, projectId: string): Promise<boolean> {
+  /*
+   * Query build_jobs where validation_result->>'chatId' = projectId AND user_id = userId.
+   * We use the jsonb path operator (->>) to extract chatId from the validation_result
+   * JSONB column. This links the build job to the IndexedDB chat.
+   */
   const { data, error } = await supabase
     .from('build_jobs')
     .select('id')
     .eq('user_id', userId)
-    .or(`project_id.eq.${projectId},id.eq.${projectId}`)
+    .filter('validation_result->>chatId', 'eq', projectId)
     .limit(1)
     .maybeSingle();
 
