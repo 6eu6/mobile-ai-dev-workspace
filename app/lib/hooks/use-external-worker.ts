@@ -71,7 +71,22 @@ export function getExternalWorkerFlag(): boolean {
 
   const stored = localStorage.getItem(FLAG_KEY);
 
-  return stored === 'true'; // false by default; true only if explicitly enabled
+  /*
+   * Default to TRUE — the external worker is now the primary build path.
+   * It uses the agent-builder + workspace-manager architecture:
+   * - Agent reads worklog.md (project memory) at start of every build
+   * - Agent writes files to unified workspace in R2
+   * - Agent appends to worklog.md after build
+   * - Agent can read/edit existing files from previous builds
+   *
+   * The old streaming path (XML <palmkitArtifact> tags) is deprecated.
+   * Users can still opt out by setting localStorage.palmkit_use_external_worker = 'false'.
+   */
+  if (stored === null) {
+    return true;
+  }
+
+  return stored === 'true';
 }
 
 export function setExternalWorkerFlag(enabled: boolean): void {
