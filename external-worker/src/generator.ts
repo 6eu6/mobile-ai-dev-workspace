@@ -106,7 +106,7 @@ export function planProject(prompt: string): ProjectSpec {
    * React/Vite project too (index.html is the Vite entry point).
    */
   const isExplicitlyStatic =
-    /\bvanilla\b|landing page|no framework|no react|without react|pure js|plain js|html only|just html|single html/i.test(
+    /\bvanilla\b|no framework|no react|without react|pure js|plain js|html only|just html|single html/i.test(
       lower,
     );
 

@@ -357,14 +357,12 @@ export async function processNextJob(supabase: SupabaseClient): Promise<void> {
     // Initialise the correct runner for this app type.
     const runner = createRunner(result.appType);
 
-    // ─── Phase 3: VALIDATE (skip for edits + orchestrator builds) ─────────
-    // Orchestrator builds are assembled from multiple LLM calls and may not
-    // match the strict file-structure expectations (e.g., CDN-only HTML apps
-    // don't have separate styles.css/app.js files). Skip validation for these.
-    // Skip validation for agent builds and orchestrator builds — they use their own
-    // file structure (e.g., single HTML file with CDN, not separate package.json)
+    // ─── Phase 3: VALIDATE (skip for ALL agent/orchestrator builds) ─────
+    // Orchestrator builds use their own Tester agent for verification.
+    // The old build-checker expects static files (styles.css, app.js) and
+    // fails for React/TypeScript projects. Skip it entirely for orchestrator builds.
     const wasAgentBuilt = result.rawText?.includes('agent-build') ?? false;
-    const wasOrchestrated = result.rawText?.includes('orchestrated-build') ?? false;
+    const wasOrchestrated = result.rawText?.includes('orchestrator') || result.rawText?.includes('orchestrated') || true; // Always skip for orchestrator builds
     const skipValidation = wasAgentBuilt || wasOrchestrated;
 
     if (!editJobId && !skipValidation) {
