@@ -95,7 +95,13 @@ export async function action(args: ActionFunctionArgs) {
   const { data: newJob, error: insertError } = await authed.supabase
     .from('build_jobs')
     .insert({
-      project_id: projectId ?? null,
+      /*
+       * Don't set project_id — it's a UUID column referencing the projects
+       * table, but our chatId is a timestamp string (e.g. "1782790105150").
+       * Instead, we store the chatId in validation_result.chatId (jsonb).
+       * The workspace files are keyed on chatId, not project_id.
+       */
+      project_id: null,
       user_id: authed.user.id,
       status: 'pending',
       current_step: 'queued',
