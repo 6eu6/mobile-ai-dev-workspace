@@ -1,13 +1,15 @@
 /**
- * Phase 3: Bridge hook connecting Phase 2 Oracle worker R2 files to
- * WebContainer (desktop) or E2B (mobile / Python).
+ * Sandbox hook — connects worker-built files to E2B cloud sandbox.
  *
- * Routing strategy — minimises E2B spend:
- *   static          → blob URL (Phase 2, already done — not handled here)
- *   react / vue / nextjs + desktop  → WebContainer (free, in-browser WASM)
- *   react / vue / nextjs + phone    → E2B sandbox (cloud, costs ~$0.0002/CPU-s)
- *   python                          → E2B always (needs Python runtime)
- *   flutter / react-native          → not sandboxable — caller shows instructions
+ * E2B is the ONLY sandbox for ALL devices (desktop + mobile + tablet).
+ * WebContainer was removed because it doesn't work on mobile and requires
+ * SharedArrayBuffer which many browsers lack.
+ *
+ * Routing:
+ *   static                → blob URL (handled in Preview.tsx, not here)
+ *   react / vue / nextjs  → E2B sandbox (npm install + npm run dev)
+ *   python                → E2B sandbox (python app.py)
+ *   flutter / react-native → E2B sandbox (if web build available)
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
@@ -15,14 +17,12 @@ import { useStore } from '@nanostores/react';
 import { buildStatusStore } from '~/lib/stores/build-status';
 import { previewFilesStore } from '~/lib/stores/build-status';
 import {
-  isMemoryConstrainedDevice,
   isRemoteSandboxAvailable,
   createRemoteSandbox,
   pushFiles,
   startRemoteSandbox,
   checkRemoteStatus,
 } from '~/lib/sandbox/remoteSandbox';
-import { WORK_DIR } from '~/utils/constants';
 
 export type SandboxRunState = 'idle' | 'writing' | 'installing' | 'starting' | 'ready' | 'error';
 
@@ -35,9 +35,18 @@ export interface WorkerSandboxResult {
   canUseSandbox: boolean;
 }
 
-const WC_TYPES = new Set(['react', 'vue', 'nextjs']);
-const E2B_TYPES = new Set(['react', 'vue', 'nextjs', 'python']);
-const PREVIEW_ABS_DIR = `${WORK_DIR}/preview`;
+/*
+ * E2B is the ONLY sandbox for all devices and all app types.
+ * WebContainer was removed because:
+ * 1. It doesn't work on mobile (the primary target for Palmkit)
+ * 2. It requires SharedArrayBuffer / COOP-COEP which many browsers lack
+ * 3. It's unreliable in headless / embedded webviews
+ *
+ * E2B works everywhere — desktop, mobile, tablet — because it's a cloud
+ * sandbox. The user clicks "Launch Preview" → E2B starts → npm install →
+ * npm run dev → preview URL is served back.
+ */
+const E2B_TYPES = new Set(['react', 'vue', 'nextjs', 'python', 'flutter', 'react-native']);
 
 export function useWorkerSandbox(): WorkerSandboxResult {
   const buildStatus = useStore(buildStatusStore);
@@ -51,8 +60,7 @@ export function useWorkerSandbox(): WorkerSandboxResult {
   const prevJobRef = useRef(buildStatus.jobStatus);
 
   const appType = buildStatus.appType ?? '';
-  const isPhone = isMemoryConstrainedDevice();
-  const canUseSandbox = Boolean(appType && (isPhone ? E2B_TYPES.has(appType) : WC_TYPES.has(appType)));
+  const canUseSandbox = Boolean(appType && E2B_TYPES.has(appType));
 
   // Reset sandbox when a new job starts generating.
   useEffect(() => {
@@ -86,19 +94,10 @@ export function useWorkerSandbox(): WorkerSandboxResult {
     launchRef.current = true;
     setSandboxError(undefined);
 
-    const phone = isMemoryConstrainedDevice();
-
     try {
-      if (!phone && WC_TYPES.has(type)) {
-        setUsesMobileE2B(false);
-        await _runInWebContainer(files, setSandboxState, setSandboxUrl, setSandboxError);
-      } else if (E2B_TYPES.has(type)) {
-        setUsesMobileE2B(true);
-        await _runInE2B(files, type, setSandboxState, setSandboxUrl, setSandboxError);
-      } else {
-        setSandboxError('This app type cannot run in the browser. Download the files to run locally.');
-        setSandboxState('error');
-      }
+      // E2B for ALL devices and ALL app types (no WebContainer)
+      setUsesMobileE2B(true);
+      await _runInE2B(files, type, setSandboxState, setSandboxUrl, setSandboxError);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setSandboxError(msg);
@@ -126,64 +125,6 @@ export function useWorkerSandbox(): WorkerSandboxResult {
   }, [doLaunch]);
 
   return { sandboxState, sandboxUrl, sandboxError, launchSandbox, usesMobileE2B, canUseSandbox };
-}
-
-async function _runInWebContainer(
-  files: Record<string, string>,
-  setState: (s: SandboxRunState) => void,
-  setUrl: (u: string) => void,
-  setError: (e: string) => void,
-): Promise<void> {
-  setState('writing');
-
-  const { webcontainer } = await import('~/lib/webcontainer');
-  const wc = await webcontainer;
-
-  /*
-   * Write all source files into an isolated preview subdirectory so they don't
-   * conflict with any existing bolt editor files in the main workdir.
-   */
-  for (const [relPath, content] of Object.entries(files)) {
-    const absPath = `${PREVIEW_ABS_DIR}/${relPath}`;
-    const dir = absPath.slice(0, absPath.lastIndexOf('/'));
-    await wc.fs.mkdir(dir, { recursive: true });
-    await wc.fs.writeFile(absPath, content);
-  }
-
-  setState('installing');
-
-  const installProc = await wc.spawn('npm', ['install'], { cwd: PREVIEW_ABS_DIR });
-  const installCode = await installProc.exit;
-
-  if (installCode !== 0) {
-    setError('npm install failed. Check the browser console for details.');
-    setState('error');
-
-    return;
-  }
-
-  setState('starting');
-
-  // Register server-ready listener BEFORE spawning so we don't miss the event.
-  const serverReadyUrl = new Promise<string>((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error('Dev server timed out (60s). Ensure package.json has a "dev" script.')),
-      60_000,
-    );
-
-    const unsub = wc.on('server-ready', (_port, url) => {
-      clearTimeout(timer);
-      unsub();
-      resolve(url);
-    });
-  });
-
-  // Dev server runs indefinitely — don't await it.
-  wc.spawn('npm', ['run', 'dev'], { cwd: PREVIEW_ABS_DIR }).catch(() => undefined);
-
-  const url = await serverReadyUrl;
-  setUrl(url);
-  setState('ready');
 }
 
 async function _runInE2B(
