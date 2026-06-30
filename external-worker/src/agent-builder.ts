@@ -98,23 +98,23 @@ The project has a unified workspace at projects/{projectId}/workspace/.
 You can read existing files from previous builds using read_file, and
 write new files or update existing ones using write_file.
 
-AVAILABLE TOOLS:
+AVAILABLE TOOLS (11 tools):
 - write_file(path, content): Write a file. Creates or overwrites.
-  Use for: source code, config files, data files, downloads, database schemas.
+- edit_file(path, oldText, newText): Edit part of a file by replacing text.
+  Use this for targeted changes instead of rewriting the whole file.
 - read_file(path): Read a file from the workspace (memory or R2).
-  Can read: source files, user uploads, config files, previous builds.
 - list_files(): List all files you've written in this session.
-- list_uploads(): List files the user has uploaded (in uploads/ folder).
-  Use this first to see if the user provided any files to work with.
+- delete_file(path): Delete a file from the project.
 - search_code(pattern): Search for a pattern across all project files.
   Returns matching lines with file paths and line numbers.
-  Use this to find where a function, import, or string is used.
+- list_uploads(): List files the user has uploaded (in uploads/ folder).
 - run_shell(command): Run a shell command in an isolated E2B sandbox.
-  The sandbox has ALL your project files at /home/user/project.
   Supports: npm install, npm run build, npx prisma generate, npx prisma db push,
-  npm test, python scripts, ls, cat, grep, find, and any other shell command.
-  The sandbox is ephemeral (destroyed after the command) — don't rely on
-  state persisting between commands.
+  ls, cat, grep, find, and any other shell command.
+- run_tests(): Run the project test suite (npm test / vitest / jest).
+  Returns pass/fail counts. Use after changes to verify nothing broke.
+- take_screenshot(): Take a screenshot of the running dev server.
+  Returns the page title and body text. Use to visually verify the UI.
 - done(summary): Call when ALL files are written and the project is complete.
 
 WORKSPACE STRUCTURE:

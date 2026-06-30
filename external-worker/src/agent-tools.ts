@@ -204,6 +204,190 @@ export function createAgentTools(
     }),
 
     // ═══════════════════════════════════════════════════════════════════
+    // edit_file — Edit a specific part of a file (like Super Z's Edit)
+    // ═══════════════════════════════════════════════════════════════════
+    edit_file: tool({
+      description:
+        'Edit a specific part of a file by replacing old text with new text. ' +
+        'Use this for targeted changes instead of rewriting the whole file with write_file. ' +
+        'The oldText must match EXACTLY (including whitespace and indentation).',
+      parameters: z.object({
+        path: z.string().describe('The file path to edit'),
+        oldText: z.string().describe('The exact text to find and replace (must match exactly)'),
+        newText: z.string().describe('The new text to replace it with'),
+      }),
+      execute: async ({ path, oldText, newText }) => {
+        let content = projectFiles.get(path);
+
+        if (!content) {
+          // Try R2
+          try {
+            const r2Key = buildWorkspaceKey(projectId, path);
+            const r2Content = await getFileText(r2Key);
+
+            if (r2Content) {
+              content = r2Content;
+              projectFiles.set(path, content);
+            }
+          } catch { /* ignore */ }
+        }
+
+        if (!content) {
+          return { error: `File not found: ${path}`, availableFiles: Array.from(projectFiles.keys()) };
+        }
+
+        if (!content.includes(oldText)) {
+          return {
+            error: `oldText not found in ${path}. Make sure it matches exactly (including whitespace).`,
+            fileLength: content.length,
+            first100Chars: content.slice(0, 100),
+          };
+        }
+
+        const updated = content.replace(oldText, newText);
+        projectFiles.set(path, updated);
+
+        // Write to R2
+        try {
+          const r2Key = buildWorkspaceKey(projectId, path);
+          await putFile(r2Key, updated);
+        } catch (e) {
+          logger.warn(`[agent] R2 write failed for ${path}: ${e}`);
+        }
+
+        logger.info(`[agent] edit_file: ${path} (replaced ${oldText.length} chars with ${newText.length})`);
+
+        return {
+          success: true,
+          path,
+          oldLength: content.length,
+          newLength: updated.length,
+          message: `Edited ${path} successfully.`,
+        };
+      },
+    }),
+
+    // ═══════════════════════════════════════════════════════════════════
+    // delete_file — Delete a file from the project
+    // ═══════════════════════════════════════════════════════════════════
+    delete_file: tool({
+      description:
+        'Delete a file from the project. Use this to remove unused or obsolete files.',
+      parameters: z.object({
+        path: z.string().describe('The file path to delete'),
+      }),
+      execute: async ({ path }) => {
+        const existed = projectFiles.delete(path);
+
+        if (!existed) {
+          return { error: `File not found: ${path}` };
+        }
+
+        // Delete from R2
+        try {
+          const { deleteFile } = await import('./r2-client');
+          const r2Key = buildWorkspaceKey(projectId, path);
+          await deleteFile(r2Key);
+        } catch (e) {
+          logger.warn(`[agent] R2 delete failed for ${path}: ${e}`);
+        }
+
+        logger.info(`[agent] delete_file: ${path}`);
+
+        return {
+          success: true,
+          path,
+          message: `Deleted ${path}`,
+        };
+      },
+    }),
+
+    // ═══════════════════════════════════════════════════════════════════
+    // run_tests — Run the project's test suite (separate from run_shell)
+    // ═══════════════════════════════════════════════════════════════════
+    run_tests: tool({
+      description:
+        'Run the project test suite (npm test, vitest, jest, etc.). ' +
+        'Returns test results including pass/fail counts. ' +
+        'Use this after making changes to verify nothing broke.',
+      parameters: z.object({}),
+      execute: async () => {
+        const files = getProjectFiles();
+
+        if (Object.keys(files).length === 0) {
+          return { exitCode: 0, stdout: 'No files to test.', stderr: '', success: true, passed: 0, failed: 0 };
+        }
+
+        const result = await runInE2B('npm test 2>&1 || vitest run 2>&1 || jest 2>&1 || echo "No tests found"', files);
+
+        const passed = (result.stdout.match(/\d+ passing/gi) || [])[0]?.match(/\d+/)?.[0] || '0';
+        const failed = (result.stdout.match(/\d+ failing/gi) || [])[0]?.match(/\d+/)?.[0] || '0';
+
+        logger.info(`[agent] run_tests: passed=${passed}, failed=${failed}`);
+
+        return {
+          exitCode: result.exitCode,
+          stdout: result.stdout.substring(0, 3000),
+          stderr: result.stderr.substring(0, 2000),
+          success: result.exitCode === 0,
+          passed: parseInt(passed),
+          failed: parseInt(failed),
+        };
+      },
+    }),
+
+    // ═══════════════════════════════════════════════════════════════════
+    // take_screenshot — Take a screenshot of the running app (via E2B)
+    // ═══════════════════════════════════════════════════════════════════
+    take_screenshot: tool({
+      description:
+        'Take a screenshot of the running dev server to visually verify the app. ' +
+        'The screenshot is taken from the E2B sandbox at http://localhost:3000. ' +
+        'Use this to check if the UI renders correctly after building.',
+      parameters: z.object({}),
+      execute: async () => {
+        const files = getProjectFiles();
+
+        if (Object.keys(files).length === 0) {
+          return { error: 'No files written yet. Build the project first.' };
+        }
+
+        // Run a screenshot command in E2B
+        // Install playwright in the sandbox and take a screenshot
+        const result = await runInE2B(
+          'npx playwright install chromium 2>/dev/null; node -e "' +
+            'const { chromium } = require(\"playwright\");' +
+            '(async () => {' +
+            '  const browser = await chromium.launch();' +
+            '  const page = await browser.newPage();' +
+            '  try {' +
+            '    await page.goto(\"http://localhost:3000\", { timeout: 10000 });' +
+            '    const title = await page.title();' +
+            '    const bodyText = await page.textContent(\"body\");' +
+            '    console.log(\"TITLE:\" + title);' +
+            '    console.log(\"BODY:\" + (bodyText || \"\").slice(0, 500));' +
+            '    console.log(\"SCREENSHOT_OK\");' +
+            '  } catch(e) { console.log(\"ERROR:\" + e.message); }' +
+            '  await browser.close();' +
+            '})();"',
+          files,
+        );
+
+        logger.info(`[agent] take_screenshot: exit ${result.exitCode}`);
+
+        const output = result.stdout + result.stderr;
+
+        return {
+          success: output.includes('SCREENSHOT_OK'),
+          title: output.match(/TITLE:(.*)/)?.[1] || 'Unknown',
+          bodyText: output.match(/BODY:(.*)/)?.[1]?.slice(0, 300) || '',
+          error: output.includes('ERROR:') ? output.match(/ERROR:(.*)/)?.[1] : undefined,
+          rawOutput: output.substring(0, 2000),
+        };
+      },
+    }),
+
+    // ═══════════════════════════════════════════════════════════════════
     // list_uploads — List files uploaded by the user (in uploads/ folder)
     // ═══════════════════════════════════════════════════════════════════
     list_uploads: tool({
