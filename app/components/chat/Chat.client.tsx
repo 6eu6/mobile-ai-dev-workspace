@@ -116,6 +116,7 @@ function buildWorkerStreamContent(state: import('~/lib/hooks/use-external-worker
   );
 
   for (const event of state.events) {
+    // Skip duplicate events (Realtime + polling may double-send)
     switch (event.type) {
       case 'planning_started':
         lines.push('', '📋 Planning app structure...');
@@ -129,11 +130,21 @@ function buildWorkerStreamContent(state: import('~/lib/hooks/use-external-worker
       case 'file_written': {
         const path = event.payload?.filePath as string | undefined;
         const lc = event.payload?.lineCount as number | undefined;
+        const agent = event.payload?.agent as string | undefined;
 
         if (path) {
-          lines.push(`  \`+${path}\`${lc != null ? `  (${lc} lines)` : ''}`);
+          const agentPrefix = agent ? `[${agent}] ` : '';
+          lines.push(`  ${agentPrefix}\`+${path}\`${lc != null ? `  (${lc} lines)` : ''}`);
         }
 
+        break;
+      }
+      case 'file_chunk': {
+        // Real-time agent messages (from onStepFinish events)
+        const msg = event.message;
+        if (msg && !lines.includes(msg)) {
+          lines.push(`  ${msg}`);
+        }
         break;
       }
       case 'build_check_started':
@@ -149,6 +160,10 @@ function buildWorkerStreamContent(state: import('~/lib/hooks/use-external-worker
         lines.push('', `❌ ${event.message}`);
         break;
       default:
+        // Show any unknown event message
+        if (event.message && event.message.length > 0) {
+          lines.push(`  ${event.message}`);
+        }
         break;
     }
   }
