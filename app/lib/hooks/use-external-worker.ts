@@ -108,36 +108,45 @@ export function useExternalWorker() {
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fetchedPreview = useRef(false);
 
-  const startJob = useCallback(async (prompt: string, model: string, provider: string, editFromJobId?: string) => {
-    setState({ ...initialState, status: 'pending', currentStep: 'queued' });
-    fetchedPreview.current = false;
-    resetPreviewFiles();
+  const startJob = useCallback(
+    async (prompt: string, model: string, provider: string, editFromJobId?: string, projectId?: string) => {
+      setState({ ...initialState, status: 'pending', currentStep: 'queued' });
+      fetchedPreview.current = false;
+      resetPreviewFiles();
 
-    try {
-      const resp = await fetch('/api/jobs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, model, provider, ...(editFromJobId ? { editJobId: editFromJobId } : {}) }),
-      });
+      try {
+        const resp = await fetch('/api/jobs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt,
+            model,
+            provider,
+            ...(editFromJobId ? { editJobId: editFromJobId } : {}),
+            ...(projectId ? { projectId } : {}),
+          }),
+        });
 
-      if (!resp.ok) {
-        const err = (await resp.json().catch(() => ({ error: 'Failed to start job' }))) as Record<string, unknown>;
-        setState({ ...initialState, status: 'failed_clean', error: (err.error as string) ?? 'Failed to start job' });
+        if (!resp.ok) {
+          const err = (await resp.json().catch(() => ({ error: 'Failed to start job' }))) as Record<string, unknown>;
+          setState({ ...initialState, status: 'failed_clean', error: (err.error as string) ?? 'Failed to start job' });
 
-        return;
+          return;
+        }
+
+        const jobData = (await resp.json()) as { jobId: string };
+        setState((s) => ({ ...s, jobId: jobData.jobId }));
+        pollJob(jobData.jobId);
+      } catch (err: unknown) {
+        setState({
+          ...initialState,
+          status: 'failed_clean',
+          error: err instanceof Error ? err.message : 'Unknown error',
+        });
       }
-
-      const jobData = (await resp.json()) as { jobId: string };
-      setState((s) => ({ ...s, jobId: jobData.jobId }));
-      pollJob(jobData.jobId);
-    } catch (err: unknown) {
-      setState({
-        ...initialState,
-        status: 'failed_clean',
-        error: err instanceof Error ? err.message : 'Unknown error',
-      });
-    }
-  }, []);
+    },
+    [],
+  );
 
   const pollJob = useCallback((jobId: string) => {
     /*

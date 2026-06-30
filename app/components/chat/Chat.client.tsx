@@ -903,7 +903,12 @@ export const ChatImpl = memo(
         const editFromJobId =
           extWorkerState.status === 'ready_for_preview' && extWorkerState.jobId ? extWorkerState.jobId : undefined;
 
-        await startExtJob(finalMessageContent, model, provider.name, editFromJobId);
+        /*
+         * Pass the chat ID as projectId so the worker can key the workspace
+         * files, worklog, and manifest under projects/{projectId}/workspace/.
+         * This links the chat to its R2 workspace for restore-on-reload.
+         */
+        await startExtJob(finalMessageContent, model, provider.name, editFromJobId, workerChatId);
 
         /*
          * Save the chat to IndexedDB IMMEDIATELY so it persists across refreshes.
