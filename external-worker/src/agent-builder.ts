@@ -169,7 +169,7 @@ the memory above.`
       system: systemPrompt,
       prompt: prompt, // FULL prompt, no truncation
       tools,
-      maxSteps: 30, // enough for: plan → write files → verify → done
+      maxSteps: 50, // enough for: plan → write files → verify → fix → done
       temperature: 0.7,
       maxTokens: 8000, // per step
       onStepFinish: async ({ toolCalls, text }) => {

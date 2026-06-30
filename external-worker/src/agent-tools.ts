@@ -212,6 +212,19 @@ export function createAgentTools(
       execute: async ({ command }) => {
         // Run in E2B sandbox — isolated, secure, with project files
         const files = getProjectFiles();
+
+        if (Object.keys(files).length === 0) {
+          logger.warn(`[agent] run_shell called with 0 files — skipping E2B sandbox`);
+          return {
+            command,
+            exitCode: 0,
+            stdout: 'No files written yet. Write files first using write_file before running shell commands.',
+            stderr: '',
+            success: true,
+            message: 'Skipped — no files to test. Use write_file first.',
+          };
+        }
+
         const result = await runInE2B(command, files);
 
         logger.info(`[agent] run_shell (E2B): "${command}" → exit ${result.exitCode}`);
