@@ -16,7 +16,7 @@
  * The LLM is the agent. We just provide the tools.
  */
 
-import { streamText, type LanguageModelV1 } from 'ai';
+import { generateText, type LanguageModelV1 } from 'ai';
 import { createAgentTools, resetProjectFiles, getProjectFiles } from './agent-tools';
 import { logger } from './logger';
 import { emitEvent } from './event-emitter';
@@ -163,8 +163,18 @@ the memory above.`
   let finishReason = '';
 
   try {
-    // Run streamText with tools — the LLM controls the flow
-    const result = await streamText({
+    /*
+     * Use generateText (not streamText) for the multi-step agent loop.
+     * generateText blocks until ALL steps complete — tool calls are
+     * automatically executed and results fed back to the model for the
+     * next step. This is the correct way to do multi-step tool calling
+     * in Vercel AI SDK v4.
+     *
+     * streamText with maxSteps has issues: the stream may not properly
+     * wait for tool results to be fed back, causing the agent to stall
+     * after the first tool call.
+     */
+    const result = await generateText({
       model,
       system: systemPrompt,
       prompt: prompt, // FULL prompt, no truncation
@@ -202,30 +212,9 @@ the memory above.`
       },
     });
 
-    // Wait for ALL steps to complete (maxSteps multi-step agent loop)
-    // Using result.text waits for the full multi-step conversation to finish.
-    // The fullStream iteration only gets the first step's deltas.
-    try {
-      // This blocks until all tool calls are resolved and the agent finishes
-      // (either by calling done(), running out of maxSteps, or the model stopping).
-      const finalText = await result.text;
-      fullText += finalText;
-      finishReason = (result as any).finishReason || 'stop';
-    } catch (streamErr) {
-      logger.error(`[agent] Stream error: ${streamErr instanceof Error ? streamErr.message : String(streamErr)}`);
-      finishReason = 'error';
-    }
-
-    // Also consume the fullStream to get any remaining events
-    try {
-      for await (const part of result.fullStream) {
-        if (part.type === 'finish') {
-          finishReason = part.finishReason;
-        }
-      }
-    } catch {
-      // stream already consumed — ignore
-    }
+    // generateText returns the final result after all steps complete
+    fullText += result.text;
+    finishReason = result.finishReason || 'stop';
 
     // Check if the LLM called done() or ran out of steps
     const files = getProjectFiles() as Record<string, string>;
