@@ -805,7 +805,101 @@ ${value.content}
           suppressOverlayIfFast();
 
           /*
-           * BUG FIX (2026-06-29): Restore worker-built files from R2 on page reload.
+           * PRIMARY RESTORE PATH (2026-06-30): Unified Workspace API
+           *
+           * Fetch files, worklog, and manifest from /api/workspace using the
+           * chat ID (mixedId) as the projectId. This is the single source of
+           * truth for the new workspace architecture.
+           *
+           * If this succeeds, we skip ALL the legacy fallback paths below
+           * (palmkitJobId lookup, /api/account/builds heuristic, etc.).
+           */
+          let workspaceRestoreDone = false;
+
+          try {
+            const wsListResp = await fetch(`/api/workspace?action=list&projectId=${mixedId}`);
+            const wsListData = (await wsListResp.json()) as { files?: string[]; count?: number; error?: string };
+
+            if (wsListResp.ok && wsListData.files && wsListData.files.length > 0) {
+              // Filter out worklog.md and manifest.json — they're metadata, not project files
+              const projectFiles = wsListData.files.filter(
+                (f) => f !== 'worklog.md' && f !== 'manifest.json' && !f.startsWith('uploads/') && !f.startsWith('downloads/') && !f.startsWith('data/'),
+              );
+
+              if (projectFiles.length > 0) {
+                // Fetch each file's content
+                const previewFiles: Record<string, string> = {};
+
+                for (const f of projectFiles) {
+                  try {
+                    const fileResp = await fetch(
+                      `/api/workspace?action=file&projectId=${mixedId}&path=${encodeURIComponent(f)}`,
+                    );
+
+                    if (fileResp.ok) {
+                      previewFiles[f] = await fileResp.text();
+                    }
+                  } catch {
+                    // skip individual file errors
+                  }
+                }
+
+                if (Object.keys(previewFiles).length > 0) {
+                  // Populate workbench + preview stores
+                  const fileMap: Record<string, { type: 'file'; content: string; isBinary?: boolean }> = {};
+
+                  for (const [path, content] of Object.entries(previewFiles)) {
+                    fileMap[path] = { type: 'file', content };
+                  }
+                  workbenchStore.files.set(fileMap as any);
+
+                  const { buildStatusStore, setPreviewFiles: setStore } = await import('~/lib/stores/build-status');
+                  setStore(previewFiles);
+
+                  // Fetch manifest for appType
+                  try {
+                    const manifestResp = await fetch(`/api/workspace?action=manifest&projectId=${mixedId}`);
+                    const manifestData = (await manifestResp.json()) as {
+                      manifest?: { appType?: string | null; fileCount?: number };
+                    };
+                    const restoredAppType = manifestData.manifest?.appType ?? 'react';
+                    const current = buildStatusStore.get();
+
+                    buildStatusStore.set({
+                      ...current,
+                      appType: restoredAppType,
+                      jobStatus: 'ready_for_preview',
+                      completeness: 'complete',
+                      hasCompletionMarker: true,
+                      artifactTagsBalanced: true,
+                      fileActionsBalanced: true,
+                      fileCount: manifestData.manifest?.fileCount ?? Object.keys(previewFiles).length,
+                    });
+                  } catch {
+                    // best-effort
+                  }
+
+                  console.log(
+                    `[Palmkit] Workspace restore: ${Object.keys(previewFiles).length} file(s) from /api/workspace for ${mixedId}`,
+                  );
+
+                  workspaceRestoreDone = true;
+                }
+              }
+            }
+          } catch (e) {
+            console.warn('[Palmkit] Workspace restore failed, falling back to legacy paths:', e);
+          }
+
+          if (workspaceRestoreDone) {
+            setReady(true);
+            suppressOverlayIfFast();
+
+            return;
+          }
+
+          /*
+           * LEGACY RESTORE PATHS (fallbacks for older builds without workspace)
            *
            * When using the external worker path, files are stored in R2 (not in the
            * IndexedDB snapshot). On page reload, previewFilesStore was empty, so the

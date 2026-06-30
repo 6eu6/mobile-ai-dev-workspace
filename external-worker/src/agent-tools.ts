@@ -34,6 +34,7 @@ import { putFile, getFileText, buildWorkspaceKey } from './r2-client';
 import { logger } from './logger';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { emitEvent } from './event-emitter';
+import { runInE2B } from './e2b-runner';
 
 // In-memory file store for the current job
 // Files are also written to R2 (workspace) for persistence
@@ -200,63 +201,28 @@ export function createAgentTools(
     // ═══════════════════════════════════════════════════════════════════
     run_shell: tool({
       description:
-        'Run a shell command to verify the build. Common uses: "npm install", "npm run build", ' +
+        'Run a shell command in an isolated sandbox to verify the build. Common uses: "npm install", "npm run build", ' +
         '"ls -la", "cat package.json". Returns stdout, stderr, and exit code. ' +
-        'Use this to catch build errors before finishing.',
+        'Use this to catch build errors before finishing. The sandbox has all your project files.',
       parameters: z.object({
         command: z
           .string()
           .describe('The shell command to run, e.g. "npm run build" or "ls -la"'),
       }),
       execute: async ({ command }) => {
-        // For now, we run shell commands on the worker host (like build-checker does)
-        // In Phase 2, this could use E2B sandbox for isolation
-        try {
-          const proc = Bun.spawn({
-            cmd: ['bash', '-c', command],
-            cwd: '/tmp',
-            stdout: 'pipe',
-            stderr: 'pipe',
-          });
+        // Run in E2B sandbox — isolated, secure, with project files
+        const files = getProjectFiles();
+        const result = await runInE2B(command, files);
 
-          let timedOut = false;
-          const timer = setTimeout(() => {
-            timedOut = true;
-            proc.kill();
-          }, 60000); // 60s timeout
+        logger.info(`[agent] run_shell (E2B): "${command}" → exit ${result.exitCode}`);
 
-          const [stdout, stderr, code] = await Promise.all([
-            new Response(proc.stdout).text(),
-            new Response(proc.stderr).text(),
-            proc.exited,
-          ]);
-
-          clearTimeout(timer);
-
-          if (timedOut) {
-            return {
-              error: 'Command timed out after 60s',
-              command,
-              stdout: stdout.substring(0, 2000),
-              stderr: stderr.substring(0, 1000),
-            };
-          }
-
-          logger.info(`[agent] run_shell: "${command}" → exit ${code}`);
-
-          return {
-            command,
-            exitCode: code,
-            stdout: stdout.substring(0, 3000),
-            stderr: stderr.substring(0, 2000),
-            success: code === 0,
-          };
-        } catch (e) {
-          return {
-            error: `Failed to run command: ${e instanceof Error ? e.message : String(e)}`,
-            command,
-          };
-        }
+        return {
+          command,
+          exitCode: result.exitCode,
+          stdout: result.stdout.substring(0, 3000),
+          stderr: result.stderr.substring(0, 2000),
+          success: result.exitCode === 0,
+        };
       },
     }),
 
