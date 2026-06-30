@@ -72,6 +72,14 @@ export class StaticRunner implements BuildRunner {
 
 /**
  * Choose the correct runner based on the app type.
+ *
+ * static → StaticRunner (blob URL preview, no sandbox needed)
+ * react/nextjs/vue/python/flutter/react-native → E2BRunner (sandbox with npm run dev)
+ *
+ * NOTE: E2BRunner is not yet fully implemented in the worker. For now,
+ * these types use StaticRunner but with runtimeMode='e2b' so the frontend
+ * knows to launch an E2B sandbox for preview. The actual build (npm install,
+ * npm run dev) happens in the E2B sandbox when the user clicks "Launch Preview".
  */
 export function createRunner(
   appType: 'static' | 'react' | 'nextjs' | 'vue' | 'python' | 'flutter' | 'react-native',
@@ -85,10 +93,41 @@ export function createRunner(
     case 'python':
     case 'flutter':
     case 'react-native':
-      // Phase 3: E2BRunner for sandbox execution.
-      // Phase 4: FlutterRunner (flutter build web), ExpoRunner (expo export -p web).
-      return new StaticRunner();
+      // These need E2B sandbox for preview (npm run dev / python app.py / etc.)
+      // The runner itself doesn't build — it just flags the runtimeMode.
+      return new E2BFlagRunner();
     default:
       return new StaticRunner();
   }
+}
+
+/**
+ * E2BFlagRunner — flags the project as needing E2B sandbox for preview.
+ *
+ * Unlike StaticRunner, this sets runtimeMode='e2b' so the frontend knows
+ * to show a "Launch Preview" button and start an E2B sandbox when clicked.
+ * The actual build (npm install, npm run dev) happens in the E2B sandbox.
+ */
+class E2BFlagRunner implements BuildRunner {
+  readonly runtimeMode = 'e2b' as const;
+
+  async prepare(files: FileOperation[]): Promise<RuntimeSession> {
+    return { sessionId: `e2b-${Date.now()}`, runtimeMode: 'e2b' };
+  }
+
+  async build(session: RuntimeSession): Promise<BuildResult> {
+    // No build step — the E2B sandbox will handle npm install + npm run dev
+    // when the user clicks "Launch Preview" in the frontend.
+    return { success: true, outputFiles: [] };
+  }
+
+  async snapshot(session: RuntimeSession, files: FileOperation[]): Promise<SnapshotRef> {
+    return {
+      snapshotId: session.sessionId,
+      fileCount: files.length,
+      storagePrefix: `snapshots/${session.sessionId}`,
+    };
+  }
+
+  async stop(_session: RuntimeSession): Promise<void> {}
 }

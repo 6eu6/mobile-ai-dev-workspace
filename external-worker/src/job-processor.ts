@@ -295,6 +295,7 @@ export async function processNextJob(supabase: SupabaseClient): Promise<void> {
           supabase,
           projectId, // chatId — links workspace to the IndexedDB chat
           job.user_id, // userId — for Supabase Storage mirroring
+          spec.maxCompletionTokens, // dynamic maxTokens based on model limits
         );
 
         if (agentResult.success && agentResult.files.length > 0) {

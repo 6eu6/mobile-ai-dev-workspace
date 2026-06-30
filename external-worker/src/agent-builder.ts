@@ -60,6 +60,7 @@ export async function runAgentBuild(
   supabase: SupabaseClient,
   projectId: string,
   userId: string,
+  maxCompletionTokens?: number,
 ): Promise<AgentBuildResult> {
   const startTime = Date.now();
   resetProjectFiles();
@@ -181,7 +182,12 @@ the memory above.`
       tools,
       maxSteps: 50, // enough for: plan → write files → verify → fix → done
       temperature: 0.7,
-      maxTokens: 16000, // per step — large enough for big files with SVGs
+      /*
+       * Dynamic maxTokens: use the model's actual maxCompletionTokens if
+       * available, otherwise default to 16000 (enough for large files).
+       * Cap at 16000 to avoid excessive token usage per step.
+       */
+      maxTokens: Math.min(16000, maxCompletionTokens ?? 16000),
       onStepFinish: async ({ toolCalls, text }) => {
         fullText += text + '\n';
 

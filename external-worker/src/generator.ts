@@ -94,8 +94,21 @@ export function planProject(prompt: string): ProjectSpec {
   const isReactNative = /react.?native|expo\b|expo.*app|\bnative.*app\b|mobile.*react|react.*mobile/i.test(lower);
   const isReact =
     /\breact\b|vite.*react|react.*vite|tsx|jsx|shadcn|radix|hooks?|useState|useEffect/i.test(lower);
+
+  /*
+   * Detect "explicitly static" requests — when the user wants a plain
+   * HTML/CSS/JS page with NO framework.
+   *
+   * IMPORTANT: \bhtml\b matches "index.html" in file lists, which is wrong.
+   * We only treat it as static if the user explicitly says "html only",
+   * "vanilla js", "no framework", "landing page", "pure js", "plain js".
+   * The bare word "html" is removed from the regex — it appears in every
+   * React/Vite project too (index.html is the Vite entry point).
+   */
   const isExplicitlyStatic =
-    /\bhtml\b|\bvanilla\b|\bstatic\b|landing page|no framework|no react|without react|pure js|plain js/i.test(lower);
+    /\bvanilla\b|landing page|no framework|no react|without react|pure js|plain js|html only|just html|single html/i.test(
+      lower,
+    );
 
   let appType: ProjectSpec['appType'];
 
