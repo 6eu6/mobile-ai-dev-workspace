@@ -223,9 +223,89 @@ export function useExternalWorker() {
 
         // Terminal states: stop polling.
         if (uiStatus === 'ready_for_preview') {
-          if (!fetchedPreview.current && appType === 'static') {
+          /*
+           * Fetch preview files for ALL app types, not just static.
+           *
+           * Previously this only fetched for static apps, leaving React/Vue/
+           * Nextjs apps with an empty previewFilesStore. The Launch Preview
+           * button checks previewFilesStore and returns early if empty,
+           * so the E2B sandbox never starts.
+           *
+           * Now: fetch files for all types. For static apps, this enables
+           * blob URL preview. For React/Vue/Nextjs, this populates the
+           * file store so the Launch Preview button can push files to E2B.
+           */
+          if (!fetchedPreview.current) {
             fetchedPreview.current = true;
-            await fetchPreviewFiles(jobId, data.files as ExternalWorkerState['files']);
+
+            // Use the new /api/workspace endpoint if we have a chatId,
+            // otherwise fall back to /api/files with jobId.
+            // The chatId is stored in validation_result.chatId (returned by /api/jobs)
+            const vr = (data as any).validationResult || {};
+            const chatId = vr.chatId as string | undefined;
+
+            // Try /api/workspace first (new unified workspace)
+            let fetched = false;
+
+            if (chatId) {
+              try {
+                const listResp = await fetch(`/api/workspace?action=list&projectId=${chatId}`);
+
+                if (listResp.ok) {
+                  const listData = (await listResp.json()) as { files?: string[] };
+
+                  if (listData.files && listData.files.length > 0) {
+                    const previewFiles: Record<string, string> = {};
+
+                    for (const f of listData.files) {
+                      // Skip metadata files
+                      if (f === 'worklog.md' || f === 'manifest.json') {
+                        continue;
+                      }
+
+                      try {
+                        const fileResp = await fetch(
+                          `/api/workspace?action=file&projectId=${chatId}&path=${encodeURIComponent(f)}`,
+                        );
+
+                        if (fileResp.ok) {
+                          previewFiles[f] = await fileResp.text();
+                        }
+                      } catch {
+                        // skip
+                      }
+                    }
+
+                    if (Object.keys(previewFiles).length > 0) {
+                      setState((s) => ({ ...s, previewFiles }));
+                      setPreviewFiles(previewFiles);
+
+                      // Also populate workbenchStore.files so the Code tab
+                      // shows the file tree and the editor can open files.
+                      const { workbenchStore } = await import('~/lib/stores/workbench');
+                      const fileMap: Record<string, { type: 'file'; content: string; isBinary?: boolean }> = {};
+
+                      for (const [path, content] of Object.entries(previewFiles)) {
+                        fileMap[path] = { type: 'file', content };
+                      }
+                      workbenchStore.files.set(fileMap as any);
+
+                      fetched = true;
+                      console.log(
+                        `[Palmkit] Fetched ${Object.keys(previewFiles).length} preview files from /api/workspace`,
+                      );
+                    }
+                  }
+                }
+              } catch {
+                // fall through to legacy fetch
+              }
+            }
+
+            // Fallback: legacy /api/files endpoint
+            if (!fetched && data.files) {
+              await fetchPreviewFiles(jobId, data.files as ExternalWorkerState['files']);
+            }
           }
 
           return; // stop polling
