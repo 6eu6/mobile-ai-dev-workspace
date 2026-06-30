@@ -20,6 +20,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { logger } from './logger';
 import { planProject, generateStaticFiles, validateGeneration, repairGeneration, generateEdit, type GenerationResult } from './generator';
 import { runAgentBuild } from './agent-builder';
+import { runOrchestratedBuild } from './orchestrator';
 import { checkBuild, BUILD_CHECK_TYPES } from './build-checker';
 import { createRunner } from './build-runner';
 import { putFile, getFileText, buildKey, buildWorkspaceKey } from './r2-client';
@@ -288,7 +289,12 @@ export async function processNextJob(supabase: SupabaseClient): Promise<void> {
          */
         const projectId = (job.validation_result as any)?.chatId ?? job.project_id ?? job.id;
 
-        const agentResult = await runAgentBuild(
+        /*
+         * Use the Orchestrator (multi-agent system) instead of single agent.
+         * The Orchestrator runs: Researcher → Builder → Tester
+         * Each agent gets only the tools it needs (permission model).
+         */
+        const agentResult = await runOrchestratedBuild(
           prompt,
           model,
           job.id,
