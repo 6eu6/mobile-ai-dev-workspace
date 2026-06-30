@@ -587,5 +587,67 @@ export function createAgentTools(
         };
       },
     }),
+
+    // ═══════════════════════════════════════════════════════════════════
+    // update_todos — Publish the agent's current task list (structured).
+    //
+    // The agent calls this whenever its plan changes — typically:
+    //   1. Once at the very start (all items "pending")
+    //   2. After completing each item (flip it to "done", next one to "in_progress")
+    //   3. Once at the end (all items "done")
+    //
+    // The frontend renders these as a checklist with green ✓ for done,
+    // spinner for in_progress, and empty ○ for pending — exactly like
+    // chat.z.ai / Claude Code / Cursor todos panel.
+    // ═══════════════════════════════════════════════════════════════════
+    update_todos: tool({
+      description:
+        'Publish your current task list so the user can see what you are working on. ' +
+        'Call this AT THE START to share your plan, and AGAIN whenever a task completes ' +
+        'so the user sees live progress. Each task has a status: "pending", "in_progress", or "done". ' +
+        'Only ONE task should be "in_progress" at a time. Keep task text short (max 80 chars).',
+      parameters: z.object({
+        todos: z
+          .array(
+            z.object({
+              text: z
+                .string()
+                .max(120)
+                .describe('Short imperative description, e.g. "Create src/App.tsx with hero section"'),
+              status: z
+                .enum(['pending', 'in_progress', 'done'])
+                .describe('"pending" = not started, "in_progress" = working on now, "done" = completed'),
+            }),
+          )
+          .max(20)
+          .describe('The complete current task list. Send the FULL list every time, not just changes.'),
+      }),
+      execute: async ({ todos }) => {
+        const done = todos.filter((t) => t.status === 'done').length;
+        const inProgress = todos.filter((t) => t.status === 'in_progress').length;
+        const pending = todos.filter((t) => t.status === 'pending').length;
+
+        logger.info(
+          `[agent] update_todos: ${todos.length} items (${done} done, ${inProgress} in_progress, ${pending} pending)`,
+        );
+
+        await emitEvent(
+          supabase,
+          jobId,
+          'todos_updated',
+          `📋 Todos: ${done}/${todos.length} done`,
+          {
+            todos,
+            counts: { total: todos.length, done, inProgress, pending },
+          },
+        );
+
+        return {
+          success: true,
+          counts: { total: todos.length, done, inProgress, pending },
+          message: `Todos updated: ${done}/${todos.length} done, ${inProgress} in progress`,
+        };
+      },
+    }),
   };
 }

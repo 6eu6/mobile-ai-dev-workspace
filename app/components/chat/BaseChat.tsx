@@ -25,6 +25,9 @@ import ChatAlert from './ChatAlert';
 import type { ModelInfo } from '~/lib/modules/llm/types';
 import ProgressCompilation from './ProgressCompilation';
 import { WorkerProgress } from './WorkerProgress';
+import { MultiAgentTodos } from './TodosPanel';
+import { ThoughtProcessPanel } from './ThoughtProcessPanel';
+import { ActivityStream } from './ActivityStream';
 import type { ProgressAnnotation } from '~/types/context';
 import { SupabaseChatAlert } from '~/components/chat/SupabaseAlert';
 import { expoUrlAtom } from '~/lib/stores/qrCodeStore';
@@ -453,6 +456,28 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                 </div>
                 {progressAnnotations && <ProgressCompilation data={progressAnnotations} />}
                 <WorkerProgress />
+                {/*
+                  * Three new real-time progress panels (matching the
+                  * chat.z.ai / Cursor UI the user requested):
+                  *
+                  * 1. ThoughtProcessPanel — the LLM's reasoning text in a
+                  *    collapsible gray block (💭 events from orchestrator).
+                  *
+                  * 2. MultiAgentTodos — a checklist per agent showing pending /
+                  *    in_progress / done items (📋 todos_updated events from
+                  *    the update_todos agent tool).
+                  *
+                  * 3. ActivityStream — grouped activity log per agent with
+                  *    summary like "Wrote 5 files, Ran 3 commands" and
+                  *    expandable detail (file_written / file_chunk events
+                  *    with agent field).
+                  *
+                  * Each panel hides itself when there's no data, so the chat
+                  * stays clean before/after a build.
+                  */}
+                <ThoughtProcessPanel />
+                <MultiAgentTodos />
+                <ActivityStream />
                 {isInterruptedGeneration && (
                   <div className="flex items-center justify-between gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm">
                     <div className="flex items-center gap-2">

@@ -60,8 +60,24 @@ function eventIcon(event: WorkerEvent, isLast: boolean): string {
 }
 
 function isFileWritten(event: WorkerEvent): boolean {
-  return event.type === 'file_written';
+  return event.type === 'file_written' && (event.payload as any)?.kind !== 'edit' && (event.payload as any)?.kind !== 'delete';
 }
+
+/*
+ * Filter out event types that are rendered by their own dedicated panels
+ * (TodosPanel, ThoughtProcessPanel, ActivityStream). Without this filter,
+ * the WorkerProgress log would show duplicate entries: once in the
+ * specialized panel and once in the flat log.
+ */
+const HIDDEN_EVENT_TYPES = new Set([
+  'reasoning',
+  'todos_updated',
+  'agent_started',
+  'agent_completed',
+  // step_start / step_end are not yet emitted — kept for future use
+  'step_start',
+  'step_end',
+]);
 
 export function WorkerProgress() {
   const events = useStore(workerEventsStore);
@@ -81,10 +97,19 @@ export function WorkerProgress() {
 
   const isDone = currentStep === 'done' || events.some((e) => e.type === 'ready_for_preview');
   const isFailed = events.some((e) => ERROR_EVENTS.has(e.type));
-  const fileCount = events.filter((e) => e.type === 'file_written').length;
+  const fileCount = events.filter((e) => isFileWritten(e)).length;
   const stageIdx = isDone ? STAGES.length - 1 : currentStageIndex(currentStep);
   const displayProgress = isDone ? 100 : isFailed ? progress : Math.max(progress, stageIdx * 14);
-  const displayItems = collapseFileEvents(events);
+  // Filter out events rendered by their own dedicated panels (TodosPanel,
+  // ThoughtProcessPanel, ActivityStream) so the flat log doesn't duplicate.
+  const visibleEvents = events.filter((e) => !HIDDEN_EVENT_TYPES.has(e.type));
+  // Also hide file_chunk events that have an `agent` payload — those are
+  // already shown in the ActivityStream. Keep file_chunk events without an
+  // agent (e.g. "⏳ Building... (Ns)" from the keep-alive timer).
+  const filteredEvents = visibleEvents.filter(
+    (e) => !(e.type === 'file_chunk' && (e.payload as any)?.agent),
+  );
+  const displayItems = collapseFileEvents(filteredEvents);
 
   return (
     <div className="mx-4 mb-3 rounded-lg border border-palmkit-elements-borderColor bg-palmkit-elements-bg-depth-2 overflow-hidden text-sm">

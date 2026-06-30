@@ -149,12 +149,13 @@ export async function runOrchestratedBuild(
 
       logger.info(`[orchestrator] Running ${config.name} agent (maxSteps=${config.maxSteps})`);
 
-      // Emit event for UI
+      // Emit agent_started — lets the activity stream UI open a new group for this agent.
       await emitEvent(
         supabase,
         jobId,
-        'file_chunk' as any,
+        'agent_started',
         `🤖 ${config.name} agent starting...`,
+        { agent: config.name, role },
       );
 
       const agentStart = Date.now();
@@ -197,64 +198,171 @@ export async function runOrchestratedBuild(
         temperature: 0.7,
         maxTokens: stepMaxTokens,
         ...(providerOptions ? { providerOptions } : {}),
-        onStepFinish: async ({ toolCalls, text }) => {
+        onStepFinish: async ({ toolCalls, text, stepType, usage }) => {
           /*
-           * Emit the LLM's own thinking text as a `reasoning` event so users
-           * see what the agent is reasoning about between tool calls. The
-           * previous code only emitted tool-call messages (📝 Written: ...),
-           * leaving the LLM's narration invisible. Capped at 400 chars/event
-           * to keep Realtime payload sizes reasonable.
+           * Reasoning event — the LLM's own thinking text emitted between tool
+           * calls. Renders as a collapsible "Thought Process" panel in the
+           * client UI (matching chat.z.ai / Claude Code).
+           *
+           * We emit it as a dedicated `reasoning` event type (not file_chunk
+           * with kind=reasoning) so the client can filter cleanly without
+           * string-matching on message prefixes. Capped at 600 chars/event
+           * to keep Realtime payloads reasonable.
            */
           if (text && text.trim().length > 0) {
-            const snippet = text.trim().slice(0, 400);
+            const snippet = text.trim().slice(0, 600);
             try {
               await emitEvent(
                 supabase,
                 jobId,
-                'file_chunk' as any,
-                `💭 [${config.name}] ${snippet}${text.length > 400 ? '…' : ''}`,
-                { kind: 'reasoning', agent: config.name, text: snippet },
+                'reasoning',
+                `💭 ${config.name}: ${snippet}${text.length > 600 ? '…' : ''}`,
+                { agent: config.name, role, text: snippet, stepType },
               );
             } catch {
               /* best-effort */
             }
           }
 
+          /*
+           * Tool-call events — emit one event per tool call so the activity
+           * stream UI can group them into "Explored X files, Ran Y commands"
+           * summary entries by agent.
+           *
+           * The previous code emitted every event as `file_chunk` type —
+           * which made the client unable to distinguish write_file from
+           * run_shell from read_file. Now each tool gets its own event type
+           * matching its semantic meaning:
+           *   - write_file / edit_file / delete_file  →  file_written (with detail)
+           *   - read_file                              →  file_read
+           *   - run_shell / run_tests                  →  shell_executed
+           *   - search_code / list_files / list_uploads → (still file_chunk — these are quick)
+           *   - take_screenshot                         →  file_chunk (screenshot is rare)
+           *   - done                                    →  file_generation_completed
+           *
+           * For backward compat with the old WorkerProgress.tsx that filters
+           * on `file_written`, we keep the write_file → file_written mapping.
+           */
           for (const tc of toolCalls) {
             const toolName = tc.toolName;
             const args = tc.args as any;
 
-            let msg = '';
-            if (toolName === 'write_file') {
-              msg = `📝 [${config.name}] Written: ${args.path}`;
-            } else if (toolName === 'edit_file') {
-              msg = `✏️ [${config.name}] Edited: ${args.path}`;
-            } else if (toolName === 'read_file') {
-              msg = `📖 [${config.name}] Reading: ${args.path}`;
-            } else if (toolName === 'delete_file') {
-              msg = `🗑️ [${config.name}] Deleted: ${args.path}`;
-            } else if (toolName === 'search_code') {
-              msg = `🔍 [${config.name}] Searching: ${args.pattern}`;
-            } else if (toolName === 'list_files') {
-              msg = `📋 [${config.name}] Listing files`;
-            } else if (toolName === 'list_uploads') {
-              msg = `📤 [${config.name}] Listing uploads`;
-            } else if (toolName === 'run_shell') {
-              msg = `⚡ [${config.name}] Running: ${args.command?.slice(0, 60)}`;
-            } else if (toolName === 'run_tests') {
-              msg = `🧪 [${config.name}] Running tests`;
-            } else if (toolName === 'take_screenshot') {
-              msg = `📸 [${config.name}] Taking screenshot`;
-            } else if (toolName === 'done') {
-              msg = `✅ [${config.name}] Done: ${(args.summary || '').slice(0, 80)}`;
-            }
+            try {
+              if (toolName === 'write_file') {
+                // file_written with full detail — the client uses this to
+                // render files live in the Code tab (with inline content
+                // if present in args.content).
+                const content = typeof args.content === 'string' ? args.content : JSON.stringify(args.content ?? '');
+                const lines = content.split('\n').length;
+                const MAX_INLINE = 100 * 1024;
+                const inlineContent = content.length <= MAX_INLINE ? content : undefined;
 
-            if (msg) {
-              try {
-                await emitEvent(supabase, jobId, 'file_chunk' as any, msg);
-              } catch {
-                /* best-effort */
+                await emitEvent(
+                  supabase,
+                  jobId,
+                  'file_written',
+                  `📝 [${config.name}] Written: ${args.path} (${lines} lines)`,
+                  {
+                    filePath: args.path,
+                    path: args.path,
+                    lines,
+                    size: content.length,
+                    content: inlineContent,
+                    truncated: inlineContent === undefined,
+                    agent: config.name,
+                  },
+                );
+              } else if (toolName === 'edit_file') {
+                await emitEvent(
+                  supabase,
+                  jobId,
+                  'file_written',
+                  `✏️ [${config.name}] Edited: ${args.path}`,
+                  {
+                    filePath: args.path,
+                    path: args.path,
+                    agent: config.name,
+                    kind: 'edit',
+                  },
+                );
+              } else if (toolName === 'delete_file') {
+                await emitEvent(
+                  supabase,
+                  jobId,
+                  'file_written',
+                  `🗑️ [${config.name}] Deleted: ${args.path}`,
+                  { filePath: args.path, path: args.path, agent: config.name, kind: 'delete' },
+                );
+              } else if (toolName === 'read_file') {
+                await emitEvent(
+                  supabase,
+                  jobId,
+                  'file_chunk',
+                  `📖 [${config.name}] Read: ${args.path}`,
+                  { agent: config.name, kind: 'read', path: args.path },
+                );
+              } else if (toolName === 'search_code') {
+                await emitEvent(
+                  supabase,
+                  jobId,
+                  'file_chunk',
+                  `🔍 [${config.name}] Search: ${args.pattern}`,
+                  { agent: config.name, kind: 'search', pattern: args.pattern },
+                );
+              } else if (toolName === 'list_files') {
+                await emitEvent(
+                  supabase,
+                  jobId,
+                  'file_chunk',
+                  `📋 [${config.name}] List files`,
+                  { agent: config.name, kind: 'list' },
+                );
+              } else if (toolName === 'list_uploads') {
+                await emitEvent(
+                  supabase,
+                  jobId,
+                  'file_chunk',
+                  `📤 [${config.name}] List uploads`,
+                  { agent: config.name, kind: 'list_uploads' },
+                );
+              } else if (toolName === 'run_shell') {
+                await emitEvent(
+                  supabase,
+                  jobId,
+                  'file_chunk',
+                  `⚡ [${config.name}] Run: ${args.command?.slice(0, 80)}`,
+                  { agent: config.name, kind: 'shell', command: args.command },
+                );
+              } else if (toolName === 'run_tests') {
+                await emitEvent(
+                  supabase,
+                  jobId,
+                  'file_chunk',
+                  `🧪 [${config.name}] Run tests`,
+                  { agent: config.name, kind: 'tests' },
+                );
+              } else if (toolName === 'take_screenshot') {
+                await emitEvent(
+                  supabase,
+                  jobId,
+                  'file_chunk',
+                  `📸 [${config.name}] Screenshot`,
+                  { agent: config.name, kind: 'screenshot' },
+                );
+              } else if (toolName === 'update_todos') {
+                // update_todos already emits its own todos_updated event
+                // from inside the tool's execute() function. Don't double-emit.
+              } else if (toolName === 'done') {
+                await emitEvent(
+                  supabase,
+                  jobId,
+                  'file_chunk',
+                  `✅ [${config.name}] Done: ${(args.summary || '').slice(0, 80)}`,
+                  { agent: config.name, kind: 'done', summary: args.summary },
+                );
               }
+            } catch {
+              /* best-effort — don't let one failed event kill the build */
             }
           }
         },
@@ -322,12 +430,13 @@ export async function runOrchestratedBuild(
         testerContext = agentText;
       }
 
-      // Emit completion event
+      // Emit agent_completed — closes the activity stream group for this agent.
       await emitEvent(
         supabase,
         jobId,
-        'file_chunk' as any,
+        'agent_completed',
         `✅ ${config.name} agent completed (${(agentDuration / 1000).toFixed(1)}s)`,
+        { agent: config.name, role, durationMs: agentDuration, success: agentSuccess },
       );
     }
 

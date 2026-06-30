@@ -39,7 +39,35 @@ export type JobEventType =
   | 'repair_started'
   | 'edit_started'
   | 'edit_completed'
-  | 'job_failed';
+  | 'job_failed'
+  /*
+   * Reasoning — the LLM's own thinking text emitted between tool calls.
+   * Renders as a collapsible "Thought Process" panel in the client UI.
+   * payload: { agent: 'Builder'|'Tester'|'Researcher', text: string }
+   */
+  | 'reasoning'
+  /*
+   * Todos updated — the LLM publishes its current task list so the client
+   * can render a structured checklist with pending/in_progress/done states.
+   * payload: { agent, todos: [{ text, status: 'pending'|'in_progress'|'done' }] }
+   */
+  | 'todos_updated'
+  /*
+   * Step lifecycle — marks when an agent step starts/ends. Used by the
+   * activity stream UI to group events into expandable "Explored X files,
+   * Ran Y commands" entries.
+   * step_start payload: { agent, stepNumber, totalSteps }
+   * step_end payload:   { agent, stepNumber, filesTouched, commandsRun, durationMs }
+   */
+  | 'step_start'
+  | 'step_end'
+  /*
+   * Agent lifecycle — marks when an agent (Builder/Tester) starts/stops.
+   * Lets the activity stream UI group all events of one agent together.
+   * payload: { agent, role }
+   */
+  | 'agent_started'
+  | 'agent_completed';
 
 export interface JobEventPayload {
   [key: string]: unknown;

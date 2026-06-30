@@ -14,10 +14,125 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouteLoaderData } from '@remix-run/react';
-import { setPreviewFiles, resetPreviewFiles, previewFilesStore } from '~/lib/stores/build-status';
+import {
+  setPreviewFiles,
+  resetPreviewFiles,
+  previewFilesStore,
+  setAgentTodos,
+  appendReasoning,
+  startActivityGroup,
+  appendActivityEvent,
+  endActivityGroup,
+  resetAllProgressStores,
+  type AgentTodo,
+} from '~/lib/stores/build-status';
 
 const FLAG_KEY = 'palmkit_use_external_worker';
 const POLL_INTERVAL_MS = 1500;
+
+/*
+ * dispatchJobEvent — route a single job event to the appropriate progress store.
+ *
+ * Called from BOTH the Realtime handler and the polling path so they stay in
+ * sync. The dispatch is idempotent: stores check for duplicates by seq.
+ *
+ * The event types handled here are the new structured types added in this
+ * commit:
+ *   - todos_updated  → setAgentTodos (snapshot per agent)
+ *   - reasoning      → appendReasoning (chronological list)
+ *   - agent_started  → startActivityGroup (opens a new group)
+ *   - agent_completed → endActivityGroup (closes the open group)
+ *   - file_written / file_chunk (with agent in payload)
+ *                    → appendActivityEvent (adds to the agent's group)
+ *
+ * Other event types (job_created, planning_started, ready_for_preview, etc.)
+ * are not routed here — they're handled by the WorkerProgress component
+ * directly via the workerEventsStore.
+ */
+function dispatchJobEvent(ev: JobEvent): void {
+  if (!ev || !ev.type) {
+    return;
+  }
+
+  const payload = ev.payload ?? {};
+  const agent = (payload.agent as string | undefined) ?? 'Worker';
+  const timestamp = new Date(ev.created_at).getTime() || Date.now();
+
+  try {
+    switch (ev.type) {
+      case 'todos_updated': {
+        const todos = (payload.todos as AgentTodo[] | undefined) ?? [];
+        const counts = (payload.counts as {
+          total: number;
+          done: number;
+          inProgress: number;
+          pending: number;
+        } | undefined) ?? {
+          total: todos.length,
+          done: todos.filter((t) => t.status === 'done').length,
+          inProgress: todos.filter((t) => t.status === 'in_progress').length,
+          pending: todos.filter((t) => t.status === 'pending').length,
+        };
+        setAgentTodos(agent, todos, counts);
+        break;
+      }
+
+      case 'reasoning': {
+        const text = (payload.text as string | undefined) ?? '';
+        if (text) {
+          appendReasoning({
+            agent,
+            text,
+            stepType: payload.stepType as string | undefined,
+            timestamp,
+            seq: ev.seq,
+          });
+        }
+        break;
+      }
+
+      case 'agent_started': {
+        const role = (payload.role as string | undefined) ?? agent;
+        startActivityGroup(agent, role, timestamp);
+        break;
+      }
+
+      case 'agent_completed': {
+        const durationMs = (payload.durationMs as number | undefined) ?? 0;
+        const success = (payload.success as boolean | undefined) ?? true;
+        endActivityGroup(agent, timestamp, durationMs, success);
+        break;
+      }
+
+      case 'file_written':
+      case 'file_chunk': {
+        // Only append to activity group if we know which agent emitted it.
+        // Events without an agent field (e.g. planning_started, file_chunk
+        // from the keep-alive timer) are skipped — they're not agent actions.
+        if (!payload.agent) {
+          break;
+        }
+
+        appendActivityEvent(agent, {
+          seq: ev.seq,
+          type: ev.type,
+          message: ev.message,
+          kind: payload.kind as string | undefined,
+          path: (payload.path as string | undefined) ?? (payload.filePath as string | undefined),
+          command: payload.command as string | undefined,
+          timestamp,
+        });
+        break;
+      }
+
+      default:
+        // Unknown event type — ignore. Other components handle their own types.
+        break;
+    }
+  } catch {
+    // best-effort — never let a single event dispatch crash the polling loop
+  }
+}
 
 export interface JobEvent {
   type: string;
@@ -178,6 +293,14 @@ export function useExternalWorker() {
                   }));
 
                   /*
+                   * Route to specialized progress stores (todos, reasoning,
+                   * activity groups). This is the SAME dispatchJobEvent helper
+                   * used by the polling path — so Realtime and polling stay in
+                   * sync even if only one of them is active.
+                   */
+                  dispatchJobEvent(event);
+
+                  /*
                    * LIVE FILE UPDATE: When a file_written event arrives, push the
                    * file content into previewFilesStore + workbenchStore.files
                    * immediately so the Code tab shows it in real-time.
@@ -291,6 +414,9 @@ export function useExternalWorker() {
       setState({ ...initialState, status: 'pending', currentStep: 'queued' });
       fetchedPreview.current = false;
       resetPreviewFiles();
+      // Reset all progress stores (todos, reasoning, activity groups) so
+      // stale data from a previous build doesn't bleed into the new one.
+      resetAllProgressStores();
 
       try {
         const resp = await fetch('/api/jobs', {
@@ -393,37 +519,77 @@ export function useExternalWorker() {
           if (ev.seq > lastEventSeq.current) {
             lastEventSeq.current = ev.seq;
 
+            /*
+             * Route the event to the appropriate store based on its type:
+             *   - todos_updated  → agentTodosStore (snapshot per agent)
+             *   - reasoning      → reasoningStore (chronological list)
+             *   - agent_started  → opens a new activity group
+             *   - agent_completed → closes the open activity group
+             *   - file_written / file_chunk (with agent in payload)
+             *                   → appends to the agent's open activity group
+             */
+            dispatchJobEvent(ev);
+
             if (ev.type === 'file_written' && ev.payload) {
               const filePath = (ev.payload.filePath as string | undefined) ?? (ev.payload.path as string | undefined);
 
               if (filePath) {
                 const inlineContent = ev.payload.content as string | undefined;
+                const isEdit = ev.payload.kind === 'edit' || ev.payload.kind === 'delete';
 
-                const applyContent = (content: string) => {
+                // Skip auto-fetch for edit/delete — content isn't inlined for those.
+                if (inlineContent) {
                   const current = previewFilesStore.get() ?? {};
-                  setPreviewFiles({ ...current, [filePath]: content });
+                  setPreviewFiles({ ...current, [filePath]: inlineContent });
 
                   import('~/lib/stores/workbench')
                     .then(({ workbenchStore }) => {
                       const currentFiles = workbenchStore.files.get() ?? {};
                       workbenchStore.files.set({
                         ...currentFiles,
-                        [filePath]: { type: 'file', content, isBinary: false },
+                        [filePath]: { type: 'file', content: inlineContent, isBinary: false },
                       });
                     })
                     .catch(() => {
                       // best-effort
                     });
-                };
+                } else if (!isEdit) {
+                  // Large file (>100KB) — fetch via /api/workspace using chatId.
+                  try {
+                    const vr = (data as any).validationResult || {};
+                    const chatId = (vr.chatId as string | undefined) ?? '';
 
-                if (inlineContent) {
-                  applyContent(inlineContent);
+                    if (chatId) {
+                      fetch(
+                        `/api/workspace?action=file&projectId=${encodeURIComponent(chatId)}&path=${encodeURIComponent(filePath)}`,
+                      )
+                        .then((r) => (r.ok ? r.text() : null))
+                        .then((text) => {
+                          if (text) {
+                            const current = previewFilesStore.get() ?? {};
+                            setPreviewFiles({ ...current, [filePath]: text });
+
+                            import('~/lib/stores/workbench')
+                              .then(({ workbenchStore }) => {
+                                const currentFiles = workbenchStore.files.get() ?? {};
+                                workbenchStore.files.set({
+                                  ...currentFiles,
+                                  [filePath]: { type: 'file', content: text, isBinary: false },
+                                });
+                              })
+                              .catch(() => {
+                                // best-effort
+                              });
+                          }
+                        })
+                        .catch(() => {
+                          // best-effort
+                        });
+                    }
+                  } catch {
+                    // best-effort
+                  }
                 }
-
-                /*
-                 * If no inline content, the file will be fetched at
-                 * ready_for_preview (same as before).
-                 */
               }
             }
           }

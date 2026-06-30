@@ -46,6 +46,7 @@ export const ALL_TOOL_NAMES = [
   'run_shell',
   'run_tests',
   'take_screenshot',
+  'update_todos',
   'done',
 ] as const;
 
@@ -142,7 +143,7 @@ YOUR TASK:
    - Any user uploads
 
 Output a clear summary that the Builder can use to create or modify files.`,
-  allowedTools: ['read_file', 'list_files', 'list_uploads', 'search_code', 'done'],
+  allowedTools: ['read_file', 'list_files', 'list_uploads', 'search_code', 'update_todos', 'done'],
   maxSteps: 5,  // Reduced from 10 — Researcher just reads, doesn't need many steps
   maxTokens: 4000,  // Reduced from 8000 — Researcher output is just a summary
 };
@@ -188,6 +189,22 @@ CRITICAL RULES:
 - Use edit_file for targeted changes to existing files
 - Use write_file for new files or complete rewrites
 
+WORKFLOW WITH update_todos (IMPORTANT — call this often):
+1. AT THE START: call update_todos with your full plan as a list of items, all marked "pending" except the first one which is "in_progress".
+2. AFTER completing each item: call update_todos again with that item flipped to "done" and the next item flipped to "in_progress".
+3. AT THE END: call update_todos one final time with all items "done".
+
+This gives the user a live checklist of what you're working on. Without it, the user only sees file events and can't tell what phase you're in.
+
+Example todos for a React app:
+- "Set up project structure (package.json, vite config, tsconfig)"
+- "Create index.html entry point"
+- "Build main App component with routing"
+- "Create UI components (header, footer, navigation)"
+- "Implement feature: authentication flow"
+- "Add styles with Tailwind CSS"
+- "Verify build with npm run build"
+
 DATABASE SUPPORT:
 If the project needs a database:
 1. Create data/schema.prisma with the schema
@@ -200,6 +217,7 @@ If the project needs a database:
     'delete_file',
     'search_code',
     'run_shell',
+    'update_todos',
     'done',
   ],
   maxSteps: 50,  // Was 30 — too low for 15+ file projects. 50 fits Builder use cases
@@ -246,13 +264,26 @@ If the build FAILS:
 - Report EXACTLY what's wrong and which file/line has the issue
 - Do NOT try to fix it — that's the Builder's job
 
-Call done() with your verification report.`,
+Call done() with your verification report.
+
+WORKFLOW WITH update_todos:
+1. AT THE START: call update_todos with your verification plan as items, all "pending" except the first which is "in_progress".
+2. AFTER completing each verification step: call update_todos with that item "done" and next item "in_progress".
+3. AT THE END: call update_todos with all items "done".
+
+Example Tester todos:
+- "Run npm install"
+- "Run npm run build to verify compilation"
+- "Run npm test to check for test failures"
+- "Take screenshot to verify visual rendering"
+- "Report verification results"`,
   allowedTools: [
     'run_shell',
     'run_tests',
     'take_screenshot',
     'read_file',
     'search_code',
+    'update_todos',
     'done',
   ],
   maxSteps: 15,  // Was 8 — too low for debugging failed builds. 15 lets the Tester actually investigate.

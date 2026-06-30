@@ -105,6 +105,162 @@ export function clearWorkerEvents(): void {
   workerEventsStore.set([]);
 }
 
+/*
+ * Structured Todo item — published by the agent via the `update_todos` tool.
+ * The agent sends the FULL list each time (not diffs), so we just keep the
+ * latest snapshot per agent (Builder, Tester, Researcher).
+ */
+export interface AgentTodo {
+  text: string;
+  status: 'pending' | 'in_progress' | 'done';
+}
+
+export interface AgentTodoSnapshot {
+  agent: string;
+  todos: AgentTodo[];
+  counts: { total: number; done: number; inProgress: number; pending: number };
+  updatedAt: number;
+}
+
+/*
+ * Latest todos snapshot PER agent. Key = agent name (e.g. "Builder").
+ * When a new `todos_updated` event arrives, we replace the snapshot for that
+ * agent (the agent always sends the full list, so this is correct).
+ */
+export const agentTodosStore = atom<Record<string, AgentTodoSnapshot>>({});
+
+export function setAgentTodos(agent: string, todos: AgentTodo[], counts: AgentTodoSnapshot['counts']): void {
+  const current = agentTodosStore.get();
+  agentTodosStore.set({
+    ...current,
+    [agent]: { agent, todos, counts, updatedAt: Date.now() },
+  });
+}
+
+export function clearAgentTodos(): void {
+  agentTodosStore.set({});
+}
+
+/*
+ * Reasoning text — emitted by the orchestrator as a `reasoning` event
+ * between tool calls. Stored as a flat list per agent so the UI can render
+ * a chronological "Thought Process" panel.
+ */
+export interface ReasoningEntry {
+  agent: string;
+  text: string;
+  stepType?: string;
+  timestamp: number;
+  seq: number;
+}
+
+export const reasoningStore = atom<ReasoningEntry[]>([]);
+
+export function appendReasoning(entry: ReasoningEntry): void {
+  const current = reasoningStore.get();
+  // Avoid duplicates by seq
+  if (current.some((r) => r.seq === entry.seq)) {
+    return;
+  }
+  reasoningStore.set([...current, entry]);
+}
+
+export function clearReasoning(): void {
+  reasoningStore.set([]);
+}
+
+/*
+ * Activity stream — groups of events per agent (Builder, Tester, Researcher).
+ * Each group has a summary ("Explored X files, Wrote Y files, Ran Z commands")
+ * and a list of inner events that can be expanded.
+ */
+export interface ActivityEvent {
+  seq: number;
+  type: string;
+  message: string;
+  kind?: string;
+  path?: string;
+  command?: string;
+  timestamp: number;
+}
+
+export interface ActivityGroup {
+  agent: string;
+  role: string;
+  startedAt: number;
+  endedAt?: number;
+  durationMs?: number;
+  success?: boolean;
+  events: ActivityEvent[];
+}
+
+export const activityGroupsStore = atom<ActivityGroup[]>([]);
+
+export function startActivityGroup(agent: string, role: string, startedAt: number): void {
+  const current = activityGroupsStore.get();
+  // Don't add a duplicate if the same agent already has an open group
+  if (current.some((g) => g.agent === agent && !g.endedAt)) {
+    return;
+  }
+  activityGroupsStore.set([
+    ...current,
+    { agent, role, startedAt, events: [] },
+  ]);
+}
+
+export function appendActivityEvent(agent: string, event: ActivityEvent): void {
+  const current = activityGroupsStore.get();
+  // Find the latest open group for this agent
+  const groupIdx = current.findIndex((g) => g.agent === agent && !g.endedAt);
+  if (groupIdx === -1) {
+    // No open group for this agent — create one on the fly
+    activityGroupsStore.set([
+      ...current,
+      {
+        agent,
+        role: agent,
+        startedAt: event.timestamp,
+        events: [event],
+      },
+    ]);
+    return;
+  }
+  const updated = [...current];
+  updated[groupIdx] = {
+    ...updated[groupIdx],
+    events: [...updated[groupIdx].events, event],
+  };
+  activityGroupsStore.set(updated);
+}
+
+export function endActivityGroup(agent: string, endedAt: number, durationMs: number, success: boolean): void {
+  const current = activityGroupsStore.get();
+  const groupIdx = current.findIndex((g) => g.agent === agent && !g.endedAt);
+  if (groupIdx === -1) {
+    return;
+  }
+  const updated = [...current];
+  updated[groupIdx] = {
+    ...updated[groupIdx],
+    endedAt,
+    durationMs,
+    success,
+  };
+  activityGroupsStore.set(updated);
+}
+
+export function clearActivityGroups(): void {
+  activityGroupsStore.set([]);
+}
+
+/** Reset all real-time progress stores — called when a new chat starts. */
+export function resetAllProgressStores(): void {
+  workerEventsStore.set([]);
+  agentTodosStore.set({});
+  reasoningStore.set([]);
+  activityGroupsStore.set([]);
+}
+
 /** Phase 10 — real progress percentage + step from the Oracle Worker. */
 export interface WorkerProgress {
   progress: number;
