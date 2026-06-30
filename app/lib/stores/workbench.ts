@@ -566,38 +566,79 @@ export class WorkbenchStore {
     }
 
     if (data.action.type === 'file') {
-      const wc = await webcontainer;
-      const fullPath = path.join(wc.workdir, data.action.filePath);
-
       /*
-       * For scoped locks, we would need to implement diff checking here
-       * to determine if the AI is modifying existing code or just adding new code
-       * This is a more complex feature that would be implemented in a future update
+       * BUG FIX (2026-06-29): The previous code did `const wc = await webcontainer;`
+       * with NO timeout. On page refresh, WebContainer re-boots and may take
+       * 15s+ or never boot (headless browsers, restricted environments).
+       * This blocked ALL file actions and left the Artifact stuck on
+       * "Restoring Project..." forever.
+       *
+       * Now: race the WebContainer promise against a 10s timeout. If the
+       * timeout wins, skip the editor-selection logic and proceed directly
+       * to the action runner (which has its own timeout for the actual
+       * file write).
        */
+      let wc: any = null;
 
-      if (this.selectedFile.value !== fullPath) {
-        this.setSelectedFile(fullPath);
+      try {
+        wc = await Promise.race([
+          webcontainer,
+          new Promise<null>((resolve) =>
+            setTimeout(() => {
+              console.warn('[workbench._runAction] WebContainer not ready within 10s — skipping editor selection');
+              resolve(null);
+            }, 10_000),
+          ),
+        ]);
+      } catch (e) {
+        console.warn('[workbench._runAction] WebContainer promise rejected:', e);
       }
 
-      if (this.currentView.value !== 'code') {
-        this.currentView.set('code');
-      }
+      if (wc) {
+        const fullPath = path.join(wc.workdir, data.action.filePath);
 
-      const doc = this.#editorStore.documents.get()[fullPath];
+        /*
+         * For scoped locks, we would need to implement diff checking here
+         * to determine if the AI is modifying existing code or just adding new code
+         * This is a more complex feature that would be implemented in a future update
+         */
 
-      if (!doc) {
+        if (this.selectedFile.value !== fullPath) {
+          this.setSelectedFile(fullPath);
+        }
+
+        if (this.currentView.value !== 'code') {
+          this.currentView.set('code');
+        }
+
+        const doc = this.#editorStore.documents.get()[fullPath];
+
+        if (!doc) {
+          await artifact.runner.runAction(data, isStreaming);
+        }
+
+        this.#editorStore.updateFile(fullPath, data.action.content);
+
+        if (!isStreaming && data.action.content) {
+          await this.saveFile(fullPath);
+        }
+
+        if (!isStreaming) {
+          await artifact.runner.runAction(data);
+          this.resetAllFileModifications();
+        }
+      } else {
+        /*
+         * WebContainer didn't boot in time — just run the action directly.
+         * The action runner's #runFileAction has its own timeout and will
+         * register the file via onFileWritten (which is what the preview
+         * actually reads from).
+         */
         await artifact.runner.runAction(data, isStreaming);
-      }
 
-      this.#editorStore.updateFile(fullPath, data.action.content);
-
-      if (!isStreaming && data.action.content) {
-        await this.saveFile(fullPath);
-      }
-
-      if (!isStreaming) {
-        await artifact.runner.runAction(data);
-        this.resetAllFileModifications();
+        if (!isStreaming) {
+          await artifact.runner.runAction(data);
+        }
       }
     } else {
       await artifact.runner.runAction(data);

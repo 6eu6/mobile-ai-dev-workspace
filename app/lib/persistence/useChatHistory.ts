@@ -953,7 +953,36 @@ ${value.content}
   );
 
   const restoreSnapshot = useCallback(async (id: string, snapshot?: Snapshot) => {
-    const container = await webcontainer;
+    /*
+     * BUG FIX (2026-06-29): The previous code did `const container = await webcontainer;`
+     * with NO timeout. On page refresh, WebContainer re-boots and may take
+     * 15s+ or never boot (headless browsers, restricted environments).
+     * This blocked the restore indefinitely.
+     *
+     * Now: race the WebContainer promise against a 10s timeout. If the
+     * timeout wins, skip the WC restore — the workbenchStore.files.set()
+     * call earlier in the restore flow already populated the file tree,
+     * which is what the preview actually reads from.
+     */
+    let container: any = null;
+
+    try {
+      container = await Promise.race([
+        webcontainer,
+        new Promise<null>((resolve) =>
+          setTimeout(() => {
+            console.warn('[restoreSnapshot] WebContainer not ready within 10s — skipping WC restore');
+            resolve(null);
+          }, 10_000),
+        ),
+      ]);
+    } catch (e) {
+      console.warn('[restoreSnapshot] WebContainer promise rejected:', e);
+    }
+
+    if (!container) {
+      return;
+    }
 
     const validSnapshot = snapshot || { chatIndex: '', files: {} };
 
