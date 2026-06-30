@@ -30,8 +30,7 @@ interface AssistantMessageProps {
   model?: string;
   provider?: ProviderInfo;
   parts:
-    | (TextUIPart | ReasoningUIPart | ToolInvocationUIPart | SourceUIPart | FileUIPart | StepStartUIPart)[]
-    | undefined;
+    (TextUIPart | ReasoningUIPart | ToolInvocationUIPart | SourceUIPart | FileUIPart | StepStartUIPart)[] | undefined;
   addToolResult: ({ toolCallId, result }: { toolCallId: string; result: any }) => void;
 }
 
@@ -98,6 +97,7 @@ export const AssistantMessage = memo(
     } = filteredAnnotations.find((annotation) => annotation.type === 'usage')?.value;
 
     const toolInvocations = parts?.filter((part) => part.type === 'tool-invocation');
+    const reasoningParts = parts?.filter((part) => part.type === 'reasoning');
     const toolCallAnnotations = filteredAnnotations.filter(
       (annotation) => annotation.type === 'toolCall',
     ) as ToolCallAnnotation[];
@@ -176,6 +176,20 @@ export const AssistantMessage = memo(
             </div>
           </div>
         </>
+        {reasoningParts && reasoningParts.length > 0 && (
+          <details className="mb-2 rounded-md border border-palmkit-elements-borderColor bg-palmkit-elements-background-depth-1">
+            <summary className="cursor-pointer select-none px-3 py-2 text-xs font-medium text-palmkit-elements-textSecondary">
+              Reasoning ({reasoningParts.length} step{reasoningParts.length === 1 ? '' : 's'})
+            </summary>
+            <div className="px-3 pb-3 pt-1 text-xs leading-relaxed text-palmkit-elements-textSecondary whitespace-pre-wrap">
+              {reasoningParts.map((part, idx) => (
+                <div key={idx} className="mb-2 last:mb-0">
+                  {(part as any).text || (part as any).reasoning || ''}
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
         <Markdown append={append} chatMode={chatMode} setChatMode={setChatMode} model={model} provider={provider} html>
           {content}
         </Markdown>

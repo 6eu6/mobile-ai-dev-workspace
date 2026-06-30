@@ -14,7 +14,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouteLoaderData } from '@remix-run/react';
-import { setPreviewFiles, resetPreviewFiles } from '~/lib/stores/build-status';
+import { setPreviewFiles, resetPreviewFiles, previewFilesStore } from '~/lib/stores/build-status';
 
 const FLAG_KEY = 'palmkit_use_external_worker';
 const POLL_INTERVAL_MS = 1500;
@@ -30,13 +30,7 @@ export interface JobEvent {
 export interface ExternalWorkerState {
   jobId: string | null;
   status:
-    | 'idle'
-    | 'pending'
-    | 'generating'
-    | 'validating'
-    | 'uploading_snapshot'
-    | 'ready_for_preview'
-    | 'failed_clean';
+    'idle' | 'pending' | 'generating' | 'validating' | 'uploading_snapshot' | 'ready_for_preview' | 'failed_clean';
   progress: number;
   currentStep: string;
   error: string | null;
@@ -128,10 +122,12 @@ export function useExternalWorker() {
   const liveEvents = useRef<JobEvent[]>([]);
 
   // Get Supabase URL and anon key from root loader
-  const rootData = useRouteLoaderData('root') as {
-    supabaseUrl?: string | null;
-    supabaseAnonKey?: string | null;
-  } | undefined;
+  const rootData = useRouteLoaderData('root') as
+    | {
+        supabaseUrl?: string | null;
+        supabaseAnonKey?: string | null;
+      }
+    | undefined;
 
   /**
    * Subscribe to Supabase Realtime for live job events.
@@ -140,118 +136,155 @@ export function useExternalWorker() {
    *
    * Falls back to polling if Realtime fails.
    */
-  const subscribeRealtime = useCallback((jobId: string) => {
-    try {
-      const supabaseUrl = rootData?.supabaseUrl;
-      const supabaseKey = rootData?.supabaseAnonKey;
+  const subscribeRealtime = useCallback(
+    (jobId: string) => {
+      try {
+        const supabaseUrl = rootData?.supabaseUrl;
+        const supabaseKey = rootData?.supabaseAnonKey;
 
-      if (!supabaseUrl || !supabaseKey) {
-        console.warn('[Palmkit] Realtime: Supabase URL/key not available, falling back to polling');
-        return; // No Supabase config — fall back to polling
-      }
+        if (!supabaseUrl || !supabaseKey) {
+          console.warn('[Palmkit] Realtime: Supabase URL/key not available, falling back to polling');
+          return; // No Supabase config — fall back to polling
+        }
 
-      // Dynamic import to avoid bundling supabase if not needed
-      import('@supabase/supabase-js').then(({ createClient }) => {
-        const client = createClient(supabaseUrl, supabaseKey);
+        // Dynamic import to avoid bundling supabase if not needed
+        import('@supabase/supabase-js').then(({ createClient }) => {
+          const client = createClient(supabaseUrl, supabaseKey);
 
-        const channel = client
-          .channel(`job:${jobId}`)
-          .on(
-            'postgres_changes',
-            { event: 'INSERT', schema: 'public', table: 'job_events', filter: `job_id=eq.${jobId}` },
-            (payload: any) => {
-              const event: JobEvent = {
-                type: payload.new.type,
-                seq: payload.new.seq,
-                message: payload.new.message,
-                payload: payload.new.payload,
-                created_at: payload.new.created_at,
-              };
+          client
+            .channel(`job:${jobId}`)
+            .on(
+              'postgres_changes',
+              { event: 'INSERT', schema: 'public', table: 'job_events', filter: `job_id=eq.${jobId}` },
+              (payload: any) => {
+                const event: JobEvent = {
+                  type: payload.new.type,
+                  seq: payload.new.seq,
+                  message: payload.new.message,
+                  payload: payload.new.payload,
+                  created_at: payload.new.created_at,
+                };
 
-              // Add to live events
-              if (event.seq > lastEventSeq.current) {
-                lastEventSeq.current = event.seq;
-                liveEvents.current = [...liveEvents.current, event];
+                // Add to live events
+                if (event.seq > lastEventSeq.current) {
+                  lastEventSeq.current = event.seq;
+                  liveEvents.current = [...liveEvents.current, event];
 
-                // Update state with new event immediately
+                  // Update state with new event immediately
+                  setState((s) => ({
+                    ...s,
+                    events: [...s.events, event],
+                    currentStep: event.message,
+                  }));
+
+                  /*
+                   * LIVE FILE UPDATE: When a file_written event arrives, push the
+                   * file content into previewFilesStore + workbenchStore.files
+                   * immediately so the Code tab shows it in real-time.
+                   *
+                   * The worker now includes `content` directly in the event payload
+                   * (capped at 100KB). For files larger than that, we fall back
+                   * to fetching via /api/workspace using the chatId.
+                   */
+                  if (event.type === 'file_written' && event.payload) {
+                    const filePath =
+                      (event.payload.filePath as string | undefined) ?? (event.payload.path as string | undefined);
+
+                    if (filePath) {
+                      const inlineContent = event.payload.content as string | undefined;
+
+                      const applyContent = (content: string) => {
+                        /*
+                         * MERGE into previewFilesStore — do NOT replace the whole store.
+                         * The old code did setPreviewFiles({ [filePath]: content }) which
+                         * wiped every previously-written file from the UI on each new event.
+                         */
+                        const current = previewFilesStore.get() ?? {};
+                        const merged = { ...current, [filePath]: content };
+                        setPreviewFiles(merged);
+
+                        /*
+                         * Also merge into workbenchStore.files so the Code tab's
+                         * file tree + editor pick it up.
+                         */
+                        import('~/lib/stores/workbench')
+                          .then(({ workbenchStore }) => {
+                            const currentFiles = workbenchStore.files.get() ?? {};
+                            workbenchStore.files.set({
+                              ...currentFiles,
+                              [filePath]: { type: 'file', content, isBinary: false },
+                            });
+                          })
+                          .catch(() => {
+                            // best-effort
+                          });
+                      };
+
+                      if (inlineContent) {
+                        // Happy path — content was inlined in the event. No fetch needed.
+                        applyContent(inlineContent);
+                      } else {
+                        /*
+                         * Large file (>100KB) or legacy worker without inline content.
+                         * Fall back to fetching via /api/workspace using the chatId from
+                         * the parent state (NOT jobId — the workspace is keyed by chatId).
+                         */
+                        const chatId =
+                          ((event.payload as any).chatId as string | undefined) ??
+                          document.location.pathname.split('/').pop() ??
+                          '';
+
+                        fetch(
+                          `/api/workspace?action=file&projectId=${encodeURIComponent(chatId)}&path=${encodeURIComponent(filePath)}`,
+                        )
+                          .then((r) => (r.ok ? r.text() : null))
+                          .then((text) => {
+                            if (text) {
+                              applyContent(text);
+                            }
+                          })
+                          .catch(() => {
+                            // best-effort — file will be fetched at ready_for_preview
+                          });
+                      }
+                    }
+                  }
+                }
+              },
+            )
+            .on(
+              'postgres_changes',
+              { event: 'UPDATE', schema: 'public', table: 'build_jobs', filter: `id=eq.${jobId}` },
+              (payload: any) => {
+                const job = payload.new;
+
+                let uiStatus: ExternalWorkerState['status'] = 'generating';
+
+                if (job.status === 'ready_for_preview') {
+                  uiStatus = 'ready_for_preview';
+                } else if (job.status === 'failed_clean') {
+                  uiStatus = 'failed_clean';
+                }
+
                 setState((s) => ({
                   ...s,
-                  events: [...s.events, event],
-                  currentStep: event.message,
+                  status: uiStatus,
+                  progress: job.progress ?? s.progress,
+                  error: job.error_summary ?? s.error,
                 }));
+              },
+            )
+            .subscribe();
 
-                /*
-                 * LIVE FILE FETCH: When a file_written event arrives,
-                 * immediately fetch that file from /api/workspace and
-                 * populate workbenchStore.files so the Code tab shows it
-                 * in real-time (not waiting for ready_for_preview).
-                 */
-                if (event.type === 'file_written' && event.payload?.filePath) {
-                  const filePath = event.payload.filePath as string;
-
-                  // Fetch the file content from the workspace API
-                  fetch(
-                    `/api/workspace?action=file&projectId=${jobId}&path=${encodeURIComponent(filePath)}`,
-                  )
-                    .then((r) => (r.ok ? r.text() : null))
-                    .then(async (content) => {
-                      if (!content) {
-                        return;
-                      }
-
-                      // Update previewFilesStore
-                      setPreviewFiles({ [filePath]: content });
-
-                      // Update workbenchStore.files so Code tab shows it
-                      try {
-                        const { workbenchStore } = await import('~/lib/stores/workbench');
-                        const currentFiles = workbenchStore.files.get();
-                        workbenchStore.files.set({
-                          ...currentFiles,
-                          [filePath]: { type: 'file', content },
-                        });
-                      } catch {
-                        // best-effort
-                      }
-                    })
-                    .catch(() => {
-                      // File not in workspace yet (R2 write may lag)
-                    });
-                }
-              }
-            },
-          )
-          .on(
-            'postgres_changes',
-            { event: 'UPDATE', schema: 'public', table: 'build_jobs', filter: `id=eq.${jobId}` },
-            (payload: any) => {
-              const job = payload.new;
-
-              let uiStatus: ExternalWorkerState['status'] = 'generating';
-
-              if (job.status === 'ready_for_preview') {
-                uiStatus = 'ready_for_preview';
-              } else if (job.status === 'failed_clean') {
-                uiStatus = 'failed_clean';
-              }
-
-              setState((s) => ({
-                ...s,
-                status: uiStatus,
-                progress: job.progress ?? s.progress,
-                error: job.error_summary ?? s.error,
-              }));
-            },
-          )
-          .subscribe();
-
-        realtimeChannel.current = client;
-        console.log('[Palmkit] Realtime subscribed for job:', jobId);
-      });
-    } catch {
-      // Realtime failed — polling will handle it
-    }
-  }, [rootData?.supabaseUrl, rootData?.supabaseAnonKey]);
+          realtimeChannel.current = client;
+          console.log('[Palmkit] Realtime subscribed for job:', jobId);
+        });
+      } catch {
+        // Realtime failed — polling will handle it
+      }
+    },
+    [rootData?.supabaseUrl, rootData?.supabaseAnonKey],
+  );
 
   const startJob = useCallback(
     async (prompt: string, model: string, provider: string, editFromJobId?: string, projectId?: string) => {
@@ -345,6 +378,57 @@ export function useExternalWorker() {
         const appType = (data.appType as string | null) ?? null;
         const runtimeMode = (data.runtimeMode as string | null) ?? null;
 
+        const newEvents = Array.isArray(data.events) ? (data.events as JobEvent[]) : [];
+
+        /*
+         * Polling-path file written processing.
+         *
+         * Realtime may not be enabled (Supabase Realtime add-on must be turned
+         * on at the project level). When polling, we still receive every event
+         * in `data.events`. If we see a `file_written` event with a higher seq
+         * than the last one we processed, apply the same live-update logic as
+         * the Realtime handler so the Code tab updates even without Realtime.
+         */
+        for (const ev of newEvents) {
+          if (ev.seq > lastEventSeq.current) {
+            lastEventSeq.current = ev.seq;
+
+            if (ev.type === 'file_written' && ev.payload) {
+              const filePath = (ev.payload.filePath as string | undefined) ?? (ev.payload.path as string | undefined);
+
+              if (filePath) {
+                const inlineContent = ev.payload.content as string | undefined;
+
+                const applyContent = (content: string) => {
+                  const current = previewFilesStore.get() ?? {};
+                  setPreviewFiles({ ...current, [filePath]: content });
+
+                  import('~/lib/stores/workbench')
+                    .then(({ workbenchStore }) => {
+                      const currentFiles = workbenchStore.files.get() ?? {};
+                      workbenchStore.files.set({
+                        ...currentFiles,
+                        [filePath]: { type: 'file', content, isBinary: false },
+                      });
+                    })
+                    .catch(() => {
+                      // best-effort
+                    });
+                };
+
+                if (inlineContent) {
+                  applyContent(inlineContent);
+                }
+
+                /*
+                 * If no inline content, the file will be fetched at
+                 * ready_for_preview (same as before).
+                 */
+              }
+            }
+          }
+        }
+
         setState((s) => ({
           ...s,
           jobId,
@@ -353,7 +437,7 @@ export function useExternalWorker() {
           currentStep: (data.currentStep as string) ?? '',
           error: (data.errorSummary as string | null) ?? null,
           files: Array.isArray(data.files) ? (data.files as ExternalWorkerState['files']) : [],
-          events: Array.isArray(data.events) ? (data.events as JobEvent[]) : [],
+          events: newEvents,
           appType,
           runtimeMode,
         }));
@@ -375,9 +459,11 @@ export function useExternalWorker() {
           if (!fetchedPreview.current) {
             fetchedPreview.current = true;
 
-            // Use the new /api/workspace endpoint if we have a chatId,
-            // otherwise fall back to /api/files with jobId.
-            // The chatId is stored in validation_result.chatId (returned by /api/jobs)
+            /*
+             * Use the new /api/workspace endpoint if we have a chatId,
+             * otherwise fall back to /api/files with jobId.
+             * The chatId is stored in validation_result.chatId (returned by /api/jobs)
+             */
             const vr = (data as any).validationResult || {};
             const chatId = vr.chatId as string | undefined;
 
@@ -417,8 +503,10 @@ export function useExternalWorker() {
                       setState((s) => ({ ...s, previewFiles }));
                       setPreviewFiles(previewFiles);
 
-                      // Also populate workbenchStore.files so the Code tab
-                      // shows the file tree and the editor can open files.
+                      /*
+                       * Also populate workbenchStore.files so the Code tab
+                       * shows the file tree and the editor can open files.
+                       */
                       const { workbenchStore } = await import('~/lib/stores/workbench');
                       const fileMap: Record<string, { type: 'file'; content: string; isBinary?: boolean }> = {};
 
@@ -489,10 +577,30 @@ export function useExternalWorker() {
         clearTimeout(pollTimer.current);
       }
 
-      // Unsubscribe from Realtime
+      /*
+       * Unsubscribe from Realtime — only remove THIS job's channel,
+       * not every channel in the app. The old code called
+       * realtimeChannel.current.removeAllChannels() which killed every
+       * Realtime subscription app-wide (including unrelated chat/sync channels).
+       */
       if (realtimeChannel.current) {
         try {
-          realtimeChannel.current.removeAllChannels();
+          /*
+           * The Supabase client is what we stored; use it to remove just
+           * the `job:${jobId}` channel by name.
+           */
+          const client = realtimeChannel.current;
+          const channels = client?.channels ?? [];
+
+          for (const ch of channels) {
+            try {
+              if (ch?.topic?.startsWith('job:')) {
+                client.removeChannel(ch);
+              }
+            } catch {
+              // best-effort
+            }
+          }
         } catch {
           // best-effort
         }
@@ -506,10 +614,21 @@ export function useExternalWorker() {
       clearTimeout(pollTimer.current);
     }
 
-    // Unsubscribe from Realtime
+    // Unsubscribe from Realtime — only this job's channels.
     if (realtimeChannel.current) {
       try {
-        realtimeChannel.current.removeAllChannels();
+        const client = realtimeChannel.current;
+        const channels = client?.channels ?? [];
+
+        for (const ch of channels) {
+          try {
+            if (ch?.topic?.startsWith('job:')) {
+              client.removeChannel(ch);
+            }
+          } catch {
+            // best-effort
+          }
+        }
       } catch {
         // best-effort
       }

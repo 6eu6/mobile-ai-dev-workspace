@@ -415,9 +415,8 @@ export function useChatHistory() {
                  * Set BOTH previewFilesStore AND buildStatusStore
                  * so Preview component can find files and show blob preview
                  */
-                const { buildStatusStore, setPreviewFiles: setPreviewFilesStore } = await import(
-                  '~/lib/stores/build-status'
-                );
+                const { buildStatusStore, setPreviewFiles: setPreviewFilesStore } =
+                  await import('~/lib/stores/build-status');
                 setPreviewFilesStore(previewFiles);
 
                 const current = buildStatusStore.get();
@@ -547,7 +546,11 @@ export function useChatHistory() {
              * Instead: just load the messages as-is. Files are populated
              * from /api/workspace (the workspace restore after setReady).
              */
-            if (false && startingIdx > 0 && snapshotHasFilesForRestore) {
+            if (
+              false && // eslint-disable-line no-constant-condition
+              startingIdx > 0 &&
+              snapshotHasFilesForRestore
+            ) {
               // A) Restore UX: Step - restoring files
               setRestoreStep('restoring-files');
 
@@ -586,7 +589,8 @@ export function useChatHistory() {
                * Instead, fall through to the else branch (line ~651) which
                * just sets restoreStep to 'done' without inventing files.
                */
-              const snapshotHasFiles = !!(snapshot?.files && Object.keys(snapshot.files).length > 0);
+              const snapshotFiles = snapshot?.files ?? {};
+              const snapshotHasFiles = Object.keys(snapshotFiles).length > 0;
 
               if (wasInterrupted && !snapshotHasFiles) {
                 /*
@@ -599,10 +603,10 @@ export function useChatHistory() {
                   { autoClose: 8000 },
                 );
                 setInitialMessages(filteredMessages);
-                setUrlId(storedMessages.urlId);
-                description.set(storedMessages.description);
-                chatId.set(storedMessages.id);
-                chatMetadata.set(storedMessages.metadata);
+                setUrlId(storedMessages.urlId || '');
+                description.set(storedMessages.description || '');
+                chatId.set(storedMessages.id || '');
+                chatMetadata.set(storedMessages.metadata ?? undefined);
                 setReady(true);
                 suppressOverlayIfFast();
 
@@ -618,7 +622,9 @@ export function useChatHistory() {
                */
               const restoreAssistantId = snapshotIsLastMessage
                 ? generateId()
-                : storedMessages.messages[snapshotIndex].id;
+                : (storedMessages.messages[snapshotIndex]?.id ?? generateId());
+
+              const snapshotIndexId = storedMessages.messages[snapshotIndex]?.id ?? '';
 
               const restorePair: Message[] = [
                 {
@@ -632,7 +638,7 @@ export function useChatHistory() {
                   role: 'assistant',
                   content: `Palmkit Restored your chat from a snapshot. You can revert this message to load the full chat history.
                   <palmkitArtifact id="restored-project-setup" title="Restored Project & Setup" type="bundled">
-                  ${Object.entries(snapshot?.files || {})
+                  ${Object.entries(snapshotFiles || {})
                     .map(([key, value]) => {
                       if (value?.type === 'file') {
                         return `
@@ -650,12 +656,12 @@ ${value.content}
                   `,
                   annotations: [
                     'no-store',
-                    ...(summary
+                    ...(summary && snapshotIndexId
                       ? [
                           {
-                            chatId: storedMessages.messages[snapshotIndex].id,
+                            chatId: snapshotIndexId,
                             type: 'chatSummary',
-                            summary,
+                            summary: summary as string,
                           } satisfies ContextAnnotation,
                         ]
                       : []),
@@ -686,11 +692,11 @@ ${value.content}
                */
               try {
                 await Promise.race([
-                  restoreSnapshot(mixedId, validSnapshot),
+                  restoreSnapshot(mixedId || '', validSnapshot),
                   new Promise<void>((_, reject) => setTimeout(() => reject(new Error('wc-timeout')), 10000)),
                 ]);
-              } catch (wcErr) {
-                if (wcErr instanceof Error && wcErr.message !== 'wc-timeout') {
+              } catch (wcErr: any) {
+                if (wcErr?.message && wcErr.message !== 'wc-timeout') {
                   throw wcErr;
                 }
 
@@ -832,7 +838,12 @@ ${value.content}
             if (wsListResp.ok && wsListData.files && wsListData.files.length > 0) {
               // Filter out worklog.md and manifest.json — they're metadata, not project files
               const projectFiles = wsListData.files.filter(
-                (f) => f !== 'worklog.md' && f !== 'manifest.json' && !f.startsWith('uploads/') && !f.startsWith('downloads/') && !f.startsWith('data/'),
+                (f) =>
+                  f !== 'worklog.md' &&
+                  f !== 'manifest.json' &&
+                  !f.startsWith('uploads/') &&
+                  !f.startsWith('downloads/') &&
+                  !f.startsWith('data/'),
               );
 
               if (projectFiles.length > 0) {

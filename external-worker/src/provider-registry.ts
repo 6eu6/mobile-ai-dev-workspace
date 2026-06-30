@@ -24,6 +24,7 @@ import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createCohere } from '@ai-sdk/cohere';
 import { createMistral } from '@ai-sdk/mistral';
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
+import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import type { LanguageModelV1 } from 'ai';
 import { logger } from './logger';
 
@@ -119,21 +120,34 @@ const REGISTRY: Record<string, ProviderConfig> = {
   },
 
   // ─── Aggregator ──────────────────────────────────────────────────────────
-  // Use createOpenAI with OpenRouter's OpenAI-compatible endpoint instead of
-  // @openrouter/ai-sdk-provider which now requires ai ^5 (incompatible with
-  // our ai ^4 SDK). OpenRouter's API accepts the ~ tilde prefix natively
-  // (e.g. ~anthropic/claude-sonnet-latest resolves to the latest Claude Sonnet).
+  // Use the official @openrouter/ai-sdk-provider — it correctly forwards
+  // `reasoning` field on streaming responses (DeepSeek-R1, Anthropic
+  // extended-thinking, GLM-5.2 reasoning, etc.). The previous createOpenAI
+  // shim dropped reasoning tokens because the OpenAI SDK doesn't know about
+  // OpenRouter's `delta.reasoning` extension.
+  //
+  // Note: the official SDK returns a v2-spec model. The rest of our pipeline
+  // expects LanguageModelV1, so we cast through unknown — runtime behavior is
+  // unchanged because ai@4 accepts both v1 and v2 model specs via generateText.
   OpenRouter: {
     apiTokenKey: 'OPENROUTER_API_KEY',
-    createModel: (model, apiKey) =>
-      createOpenAI({
+    createModel: (model, apiKey) => {
+      const openRouter = createOpenRouter({
         apiKey,
-        baseURL: 'https://openrouter.ai/api/v1',
         headers: {
           'HTTP-Referer': 'https://palmkit.app',
           'X-Title': 'Palmkit Build Worker',
         },
-      })(model),
+      });
+      // OpenRouter's chat() factory accepts reasoning options for
+      // reasoning-capable models (DeepSeek-R1, Anthropic thinking, o1/o3, etc).
+      // The SDK requires `effort` (or `max_tokens`) alongside `enabled: true`.
+      const isReasoningModel = /\b(r1|reasoning|thinking|o1|o3|o4)\b/i.test(model);
+      const options = isReasoningModel
+        ? { reasoning: { enabled: true, effort: 'medium' as const } }
+        : undefined;
+      return openRouter.chat(model, options) as unknown as LanguageModelV1;
+    },
   },
 
   // ─── Z.ai ─────────────────────────────────────────────────────────────

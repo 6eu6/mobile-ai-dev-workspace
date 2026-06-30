@@ -256,7 +256,18 @@ export async function streamText(props: {
    * Unified prompt: the same smart prompt handles both discussion and building.
    * The AI intelligently decides when to discuss vs. when to produce artifacts
    * based on the user's message — no mode switching needed.
+   *
+   * providerOptions: pass reasoning config to OpenRouter for reasoning-capable
+   * models (DeepSeek-R1, Anthropic thinking, GLM-5.2 reasoning, etc.). Without
+   * this, OpenRouter returns reasoning content interleaved but the AI SDK
+   * discards it because no providerOptions were set.
    */
+  const isReasoningCapable = isReasoning || /\b(r1|reasoning|thinking|o1|o3|o4)\b/i.test(modelDetails.name);
+  const providerOptions =
+    currentProvider === 'OpenRouter' && isReasoningCapable
+      ? { openrouter: { reasoning: { enabled: true } } }
+      : undefined;
+
   const streamParams = {
     model: provider.getModelInstance({
       model: modelDetails.name,
@@ -268,6 +279,7 @@ export async function streamText(props: {
     ...tokenParams,
     messages: convertToCoreMessages(processedMessages as any),
     ...filteredOptions,
+    ...(providerOptions ? { providerOptions } : {}),
 
     // Set temperature to 1 for reasoning models (required by OpenAI API)
     ...(isReasoning ? { temperature: 1 } : {}),

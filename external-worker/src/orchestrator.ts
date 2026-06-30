@@ -84,6 +84,16 @@ export async function runOrchestratedBuild(
     }
   }, 10000);
 
+  // Hard-cap the whole orchestrator at 8 minutes. Without this, a hung LLM
+  // provider could keep the keep-alive timer spinning forever, and the job
+  // would never reach a terminal state — the user would see "Building... (Ns)"
+  // climb without end. The cleanup in finally() cancels both timers.
+  const HARD_TIMEOUT_MS = 8 * 60 * 1000;
+  const hardTimeout = setTimeout(() => {
+    logger.error(`[orchestrator] Hard timeout (${HARD_TIMEOUT_MS}ms) reached for job ${jobId}`);
+    throw new Error(`Build exceeded ${HARD_TIMEOUT_MS / 1000}s timeout`);
+  }, HARD_TIMEOUT_MS);
+
   const agentResults: OrchestratorResult['agentResults'] = [];
   let researcherContext = '';
   let builderContext = '';
@@ -140,6 +150,21 @@ export async function runOrchestratedBuild(
 
       const agentStart = Date.now();
 
+      /*
+       * Token budget per step.
+       *
+       * The old code did Math.min(config.maxTokens, maxCompletionTokens ?? config.maxTokens)
+       * — which means if maxCompletionTokens was undefined (model didn't expose it),
+       * we got config.maxTokens (was 12000). And if maxCompletionTokens WAS set
+       * (e.g. 65536 for GLM-5.2), we still got Math.min(32000, 65536) = 32000.
+       * Either way, large models were capped at the registry floor.
+       *
+       * The fix: prefer maxCompletionTokens (the model's actual limit). Only fall
+       * back to config.maxTokens when it's missing. Never Math.min — the registry
+       * floor is already conservative.
+       */
+      const stepMaxTokens = maxCompletionTokens ?? config.maxTokens;
+
       const result = await generateText({
         model,
         system: config.systemPrompt,
@@ -147,8 +172,30 @@ export async function runOrchestratedBuild(
         tools: agentTools,
         maxSteps: config.maxSteps,
         temperature: 0.7,
-        maxTokens: Math.min(config.maxTokens, maxCompletionTokens ?? config.maxTokens),
+        maxTokens: stepMaxTokens,
         onStepFinish: async ({ toolCalls, text }) => {
+          /*
+           * Emit the LLM's own thinking text as a `reasoning` event so users
+           * see what the agent is reasoning about between tool calls. The
+           * previous code only emitted tool-call messages (📝 Written: ...),
+           * leaving the LLM's narration invisible. Capped at 400 chars/event
+           * to keep Realtime payload sizes reasonable.
+           */
+          if (text && text.trim().length > 0) {
+            const snippet = text.trim().slice(0, 400);
+            try {
+              await emitEvent(
+                supabase,
+                jobId,
+                'file_chunk' as any,
+                `💭 [${config.name}] ${snippet}${text.length > 400 ? '…' : ''}`,
+                { kind: 'reasoning', agent: config.name, text: snippet },
+              );
+            } catch {
+              /* best-effort */
+            }
+          }
+
           for (const tc of toolCalls) {
             const toolName = tc.toolName;
             const args = tc.args as any;
@@ -191,7 +238,45 @@ export async function runOrchestratedBuild(
 
       const agentDuration = Date.now() - agentStart;
       const agentText = result.text;
-      const agentSuccess = result.finishReason !== 'error';
+      /*
+       * Success criteria — only true when the LLM finished cleanly AND made at
+       * least one tool call. The old code (result.finishReason !== 'error')
+       * treated 'length' (token-cap truncation) and 'tool-calls' (maxSteps hit)
+       * as success — so a builder that hit maxSteps=30 mid-way through file 8
+       * was reported as "succeeded" even though the project was incomplete.
+       *
+       * Now we explicitly fail on 'length' (truncated mid-file) and 'tool-calls'
+       * (hit step limit, didn't reach done()). The orchestrator's overallSuccess
+       * check still requires fileCount > 0.
+       */
+      const finishReason = result.finishReason;
+      const madeToolCalls = (result.steps?.length ?? 0) > 0;
+      const agentSuccess =
+        finishReason !== 'error' &&
+        finishReason !== 'length' &&
+        (finishReason !== 'tool-calls' || madeToolCalls);
+
+      if (finishReason === 'length') {
+        logger.warn(
+          `[orchestrator] ${config.name} hit token cap (finishReason=length) — output truncated. Consider raising maxTokens.`,
+        );
+        await emitEvent(
+          supabase,
+          jobId,
+          'file_chunk' as any,
+          `⚠️ ${config.name} hit token cap — output may be truncated.`,
+        );
+      } else if (finishReason === 'tool-calls') {
+        logger.warn(
+          `[orchestrator] ${config.name} hit maxSteps (${config.maxSteps}) — agent did not call done().`,
+        );
+        await emitEvent(
+          supabase,
+          jobId,
+          'file_chunk' as any,
+          `⚠️ ${config.name} reached step limit (${config.maxSteps}) — continuing with what was built.`,
+        );
+      }
 
       agentResults.push({
         role,
@@ -332,5 +417,6 @@ export async function runOrchestratedBuild(
     };
   } finally {
     clearInterval(keepAlive);
+    clearTimeout(hardTimeout);
   }
 }

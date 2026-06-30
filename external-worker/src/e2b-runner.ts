@@ -59,9 +59,17 @@ export async function runInE2B(
     logger.info(`[e2b] Wrote ${writePromises.length} files to sandbox`);
 
     // Run the command
+    //
+    // Timeout was 60_000ms — too short for `npm install` on real projects
+    // (often 60-120s on cold E2B sandboxes), and definitely too short for
+    // `npx playwright install chromium`. Bumped to 180s with a separate
+    // longer budget for install-type commands detected heuristically.
+    const isInstallCommand = /^(npm|pnpm|yarn|bunx|npx)\s+(install|i|add|ci|playwright install)/.test(command.trim());
+    const timeoutMs = isInstallCommand ? 300_000 : 180_000;
+
     const result = await sandbox.commands.run(command, {
       cwd: '/home/user/project',
-      timeoutMs: 60_000, // 60s timeout
+      timeoutMs,
     });
 
     logger.info(`[e2b] Command "${command}" → exit ${result.exitCode}`);

@@ -108,15 +108,38 @@ export function createAgentTools(
           // Non-fatal — memory copy is enough for the build
         }
 
-        // Emit progress event
+        // Emit progress event with filePath + content so the client can render the
+        // file in real-time WITHOUT a fetch round-trip to /api/workspace.
+        //
+        // The client (use-external-worker.ts) listens for `file_written` events
+        // and now reads `payload.filePath` + `payload.content` directly.
+        //
+        // We cap content at 100KB per event to keep Realtime payloads manageable
+        // (Supabase Realtime has a ~1MB message limit). For files > 100KB, the
+        // client falls back to fetching via /api/workspace at ready_for_preview.
         const lines = fileContent.split('\n').length;
-        await emitEvent(supabase, jobId, 'file_written' as any, `📝 ${path} (${lines} lines, ${fileContent.length} chars)`, {
-          path,
-          lines,
-          size: fileContent.length,
-        });
+        const MAX_INLINE_CONTENT = 100 * 1024; // 100KB
+        const inlineContent =
+          fileContent.length <= MAX_INLINE_CONTENT ? fileContent : undefined;
 
-        logger.info(`[agent] write_file: ${path} (${fileContent.length} chars, ${lines} lines)`);
+        await emitEvent(
+          supabase,
+          jobId,
+          'file_written' as any,
+          `📝 ${path} (${lines} lines, ${fileContent.length} chars)`,
+          {
+            filePath: path,
+            path,
+            lines,
+            size: fileContent.length,
+            content: inlineContent,
+            truncated: inlineContent === undefined,
+          },
+        );
+
+        logger.info(
+          `[agent] write_file: ${path} (${fileContent.length} chars, ${lines} lines, inline=${inlineContent !== undefined})`,
+        );
 
         return {
           success: true,
@@ -254,6 +277,27 @@ export function createAgentTools(
         } catch (e) {
           logger.warn(`[agent] R2 write failed for ${path}: ${e}`);
         }
+
+        // Emit file_written with the new content so the client UI updates live.
+        const lines = updated.split('\n').length;
+        const MAX_INLINE_CONTENT = 100 * 1024;
+        const inlineContent =
+          updated.length <= MAX_INLINE_CONTENT ? updated : undefined;
+
+        await emitEvent(
+          supabase,
+          jobId,
+          'file_written' as any,
+          `✏️ ${path} edited (${lines} lines)`,
+          {
+            filePath: path,
+            path,
+            lines,
+            size: updated.length,
+            content: inlineContent,
+            truncated: inlineContent === undefined,
+          },
+        );
 
         logger.info(`[agent] edit_file: ${path} (replaced ${oldText.length} chars with ${newText.length})`);
 

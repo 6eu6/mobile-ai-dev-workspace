@@ -202,8 +202,8 @@ If the project needs a database:
     'run_shell',
     'done',
   ],
-  maxSteps: 30,  // Reduced from 40 — enough for 15 files + verification
-  maxTokens: 12000,  // Reduced from 16000 — cap per step to save tokens
+  maxSteps: 50,  // Was 30 — too low for 15+ file projects. 50 fits Builder use cases
+  maxTokens: 32000,  // Was 12000 — capped even 128K-token models at 12K, truncating large files. 32K is a safe floor that lets the model write complete files in a single step.
 };
 
 /**
@@ -255,8 +255,8 @@ Call done() with your verification report.`,
     'search_code',
     'done',
   ],
-  maxSteps: 8,  // Reduced from 15 — just run build + test + screenshot
-  maxTokens: 4000,  // Reduced from 8000 — Tester output is just results
+  maxSteps: 15,  // Was 8 — too low for debugging failed builds. 15 lets the Tester actually investigate.
+  maxTokens: 8000,  // Was 4000 — Tester reports need more space for error logs.
 };
 
 /**

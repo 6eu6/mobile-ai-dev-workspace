@@ -91,7 +91,22 @@ export function planProject(prompt: string): ProjectSpec {
   const isNextjs = /next\.?js|nextjs|next app|app router|pages router/i.test(lower);
   const isVue = /\bvue\b|vuex|pinia|nuxt/i.test(lower);
   const isFlutter = /\bflutter\b|\bdart\b|flutter.*app|material.*widget|stateful.*widget/i.test(lower);
-  const isReactNative = /react.?native|expo\b|expo.*app|\bnative.*app\b|mobile.*react|react.*mobile/i.test(lower);
+  /*
+   * React Native / Expo detection — must be EXPLICIT.
+   *
+   * The old regex `/react.?native|expo\b|expo.*app|\bnative.*app\b|mobile.*react|react.*mobile/i`
+   * had two greedy patterns that matched across the whole prompt:
+   *   - `mobile.*react` matched "mobile browser... lucide-react" anywhere in the string
+   *   - `react.*mobile` matched "React 18 ... mobile hamburger" anywhere in the string
+   * Both fired on the Lithos hero prompt (which explicitly asks for Vite + React +
+   * TypeScript), mis-classifying it as react-native and emitting the wrong file plan.
+   *
+   * The fix: require `react native` or `react-native` as a phrase, or `expo` as a
+   * standalone word. Drop the loose `mobile.*react` / `react.*mobile` patterns
+   * entirely — they fire too often on web projects that mention "mobile" in CSS
+   * responsive sections.
+   */
+  const isReactNative = /\breact[\s\-]?native\b|\bexpo\s+(sdk|app|build|go)\b|\bnative\s+module\b/i.test(lower);
   const isReact =
     /\breact\b|vite.*react|react.*vite|tsx|jsx|shadcn|radix|hooks?|useState|useEffect/i.test(lower);
 
