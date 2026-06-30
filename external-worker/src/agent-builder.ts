@@ -202,13 +202,29 @@ the memory above.`
       },
     });
 
-    // Wait for the stream to complete
-    for await (const part of result.fullStream) {
-      if (part.type === 'text-delta') {
-        fullText += part.textDelta;
-      } else if (part.type === 'finish') {
-        finishReason = part.finishReason;
+    // Wait for ALL steps to complete (maxSteps multi-step agent loop)
+    // Using result.text waits for the full multi-step conversation to finish.
+    // The fullStream iteration only gets the first step's deltas.
+    try {
+      // This blocks until all tool calls are resolved and the agent finishes
+      // (either by calling done(), running out of maxSteps, or the model stopping).
+      const finalText = await result.text;
+      fullText += finalText;
+      finishReason = (result as any).finishReason || 'stop';
+    } catch (streamErr) {
+      logger.error(`[agent] Stream error: ${streamErr instanceof Error ? streamErr.message : String(streamErr)}`);
+      finishReason = 'error';
+    }
+
+    // Also consume the fullStream to get any remaining events
+    try {
+      for await (const part of result.fullStream) {
+        if (part.type === 'finish') {
+          finishReason = part.finishReason;
+        }
       }
+    } catch {
+      // stream already consumed — ignore
     }
 
     // Check if the LLM called done() or ran out of steps
