@@ -165,6 +165,20 @@ export async function runOrchestratedBuild(
        */
       const stepMaxTokens = maxCompletionTokens ?? config.maxTokens;
 
+      /*
+       * providerOptions for OpenRouter reasoning support.
+       * For reasoning-capable models (DeepSeek-R1, GLM-5.2, o1/o3, etc.),
+       * pass reasoning: { enabled: true } via providerOptions. The OpenAI
+       * SDK shim forwards this as an extra body param that OpenRouter
+       * recognizes. Non-OpenRouter providers ignore the `openrouter` key.
+       */
+      const isReasoningModel = /\b(r1|reasoning|thinking|o1|o3|o4)\b/i.test(
+        (model as any)?.modelId ?? '',
+      );
+      const providerOptions = isReasoningModel
+        ? { openrouter: { reasoning: { enabled: true } } }
+        : undefined;
+
       const result = await generateText({
         model,
         system: config.systemPrompt,
@@ -173,6 +187,7 @@ export async function runOrchestratedBuild(
         maxSteps: config.maxSteps,
         temperature: 0.7,
         maxTokens: stepMaxTokens,
+        ...(providerOptions ? { providerOptions } : {}),
         onStepFinish: async ({ toolCalls, text }) => {
           /*
            * Emit the LLM's own thinking text as a `reasoning` event so users
