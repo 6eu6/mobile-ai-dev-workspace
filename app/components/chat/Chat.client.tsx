@@ -501,7 +501,19 @@ export const ChatImpl = memo(
             return prev;
           }
 
-          return [...prev.slice(0, -1), { ...last, content: newContent }];
+          const updatedMessages = [...prev.slice(0, -1), { ...last, content: newContent }];
+
+          /*
+           * Save to IndexedDB immediately when the content changes.
+           * This ensures the latest stream content (including BUILD COMPLETE)
+           * is persisted. Without this, page refresh shows the old "Building..."
+           * text because the messages state was never saved.
+           */
+          storeMessageHistory(updatedMessages).catch(() => {
+            // best-effort
+          });
+
+          return updatedMessages;
         });
       }
     }, [externalWorkerEnabled, extWorkerState]);
