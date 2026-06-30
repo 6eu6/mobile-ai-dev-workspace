@@ -937,15 +937,24 @@ ${value.content}
                 // Try to find the job by urlId via the account builds API
                 const buildsResp = await fetch('/api/account/builds');
                 const buildsData = (await buildsResp.json()) as {
-                  builds?: Array<{ id: string; prompt?: string; status?: string; appType?: string }>;
+                  builds?: Array<{
+                    id: string;
+                    status?: string;
+                    validation_result?: { prompt?: string; appType?: string };
+                  }>;
                 };
 
-                const matchingBuild = (buildsData.builds || []).find(
-                  (b) =>
-                    b.prompt &&
-                    storedMessages.description &&
-                    b.prompt.includes(storedMessages.description.slice(0, 30)),
-                );
+                /*
+                 * Match by prompt: the build's validation_result.prompt should
+                 * contain the same text as the chat's first user message
+                 * (which is also stored in storedMessages.description).
+                 */
+                const chatPrompt = storedMessages.description || '';
+                const matchingBuild = (buildsData.builds || []).find((b) => {
+                  const buildPrompt = b.validation_result?.prompt || '';
+
+                  return buildPrompt && chatPrompt && buildPrompt.includes(chatPrompt.slice(0, 30));
+                });
 
                 if (matchingBuild && matchingBuild.status === 'ready_for_preview') {
                   // Fetch files from R2 using the discovered jobId
@@ -956,7 +965,7 @@ ${value.content}
                     appType?: string;
                   };
 
-                  const restoredAppType = jobData.appType ?? matchingBuild.appType ?? 'react';
+                  const restoredAppType = jobData.appType ?? matchingBuild.validation_result?.appType ?? 'react';
 
                   if (restoredAppType) {
                     const { buildStatusStore } = await import('~/lib/stores/build-status');
