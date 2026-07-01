@@ -78,6 +78,34 @@ export function disposeProjectFiles(jobId: string): void {
   jobFileMaps.delete(jobId);
 }
 
+/*
+ * Per-job record of the LAST build/compile command run via run_shell. Lets the
+ * orchestrator gate ready_for_preview on the real build result (and drive a
+ * repair loop) instead of assuming success once files exist.
+ */
+export interface BuildResult {
+  command: string;
+  passed: boolean;
+  output: string; // trimmed stdout+stderr, enough to diagnose the failure
+}
+
+const jobBuildResults = new Map<string, BuildResult>();
+
+/** True if a command actually compiles the project (so its exit code is meaningful). */
+function isBuildCommand(command: string): boolean {
+  return /(npm|pnpm|yarn|bun)\s+(run\s+)?build\b|vite\s+build\b|next\s+build\b|tsc\b|expo\s+export\b|flutter\s+build\b/i.test(
+    command,
+  );
+}
+
+export function getBuildResult(jobId: string): BuildResult | undefined {
+  return jobBuildResults.get(jobId);
+}
+
+export function disposeBuildResult(jobId: string): void {
+  jobBuildResults.delete(jobId);
+}
+
 /**
  * Create the agent tools for a specific job.
  *
@@ -614,6 +642,19 @@ export function createAgentTools(
         const result = await runInE2B(command, files);
 
         logger.info(`[agent] run_shell (E2B): "${command}" → exit ${result.exitCode}`);
+
+        /*
+         * If this was a real build/compile command, record its result for the
+         * job so the orchestrator can gate completion + drive a repair loop.
+         */
+        if (isBuildCommand(command)) {
+          const output = `${result.stdout}\n${result.stderr}`.trim();
+          jobBuildResults.set(jobId, {
+            command,
+            passed: result.exitCode === 0,
+            output: output.slice(-4000), // keep the tail — that's where errors are
+          });
+        }
 
         return {
           command,

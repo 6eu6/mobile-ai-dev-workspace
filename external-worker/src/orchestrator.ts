@@ -17,7 +17,14 @@
  */
 
 import { streamText, type LanguageModelV1, type ToolSet } from 'ai';
-import { createAgentTools, resetProjectFiles, getProjectFiles, disposeProjectFiles } from './agent-tools';
+import {
+  createAgentTools,
+  resetProjectFiles,
+  getProjectFiles,
+  disposeProjectFiles,
+  getBuildResult,
+  disposeBuildResult,
+} from './agent-tools';
 import { filterTools, getAgentConfig, DEFAULT_AGENT_FLOW, type AgentRole } from './agent-registry';
 import { logger } from './logger';
 import { emitEvent } from './event-emitter';
@@ -117,6 +124,17 @@ export async function runOrchestratedBuild(
   let overallSuccess = false;
 
   /*
+   * Build-verification repair loop state. When the Tester runs the build and it
+   * FAILS, we feed the exact error back to a Builder repair pass and re-verify
+   * — up to MAX_REPAIR_ROUNDS times — instead of shipping a broken project as
+   * ready_for_preview. This mirrors how a real coding agent works: build → see
+   * the error → fix → re-verify until green.
+   */
+  const MAX_REPAIR_ROUNDS = 2;
+  let repairRounds = 0;
+  let repairContext = '';
+
+  /*
    * Loop detection — track how many times each file path is written per
    * build. If a path is written 4+ times, the LLM is stuck in a loop
    * (observed with GLM-4.7: write → read → rewrite → hang). We abort
@@ -125,7 +143,12 @@ export async function runOrchestratedBuild(
   const fileWriteCounts = new Map<string, number>();
 
   try {
-    for (const role of DEFAULT_AGENT_FLOW) {
+    // A mutable work queue (not a fixed list) so a failed build can re-enqueue
+    // a Builder repair round + another Tester verification.
+    const agentQueue = [...DEFAULT_AGENT_FLOW];
+
+    while (agentQueue.length > 0) {
+      const role = agentQueue.shift() as (typeof DEFAULT_AGENT_FLOW)[number];
       const config = getAgentConfig(role);
 
       /*
@@ -156,6 +179,12 @@ export async function runOrchestratedBuild(
 
       if (role === 'builder' && researcherContext) {
         agentPrompt = `${prompt}\n\nRESEARCHER FINDINGS:\n${researcherContext}\n\nNow build the project based on these findings and the user's request.`;
+      }
+
+      // Repair round: a previous build failed — give the Builder the exact
+      // error and tell it to fix ONLY that, then re-verify.
+      if (role === 'builder' && repairContext) {
+        agentPrompt = `The current project FAILS to compile. Your job is to FIX it (do not start over).\n\nOriginal request (for context):\n${prompt}\n\n${repairContext}\n\nInstructions: use read_file to inspect the offending files, fix ONLY the specific errors above (missing imports/files, type errors, syntax, wrong paths, missing deps in package.json), then run "cd /home/user/project && npm install && npm run build" to confirm it passes, then call done(). Do NOT rewrite files that already work.`;
       }
 
       if (role === 'tester' && builderContext) {
@@ -623,6 +652,31 @@ export async function runOrchestratedBuild(
         `✅ ${config.name} agent completed (${(agentDuration / 1000).toFixed(1)}s)`,
         { agent: config.name, role, durationMs: agentDuration, success: agentSuccess },
       );
+
+      /*
+       * Build-verification repair gate. After a Tester runs, inspect the real
+       * build result. If the build FAILED and we still have repair budget,
+       * enqueue a Builder repair round (fed the exact error) + another Tester.
+       * Otherwise clear the repair context.
+       */
+      if (role === 'tester') {
+        const br = getBuildResult(jobId);
+
+        if (br && !br.passed && repairRounds < MAX_REPAIR_ROUNDS) {
+          repairRounds++;
+          repairContext = `Failed build command: ${br.command}\n\nBuild error output (tail):\n${br.output}`;
+          agentQueue.push('builder', 'tester');
+          await emitEvent(
+            supabase,
+            jobId,
+            'file_chunk' as any,
+            `🔧 Build failed — starting repair attempt ${repairRounds}/${MAX_REPAIR_ROUNDS}…`,
+            { repairRound: repairRounds },
+          );
+        } else {
+          repairContext = '';
+        }
+      }
     }
 
     // Check final result
@@ -701,8 +755,26 @@ export async function runOrchestratedBuild(
       overallSuccess = fileCount > 0;
     }
 
+    /*
+     * Honest completion gate. If files exist but the build STILL fails after
+     * all repair attempts, keep the files (so the user can view/edit them) but
+     * surface the failure clearly instead of presenting a broken preview as OK.
+     */
+    const finalBuild = getBuildResult(jobId);
+    const buildVerified = finalBuild ? finalBuild.passed : null;
+
+    if (overallSuccess && finalBuild && !finalBuild.passed) {
+      await emitEvent(
+        supabase,
+        jobId,
+        'file_chunk' as any,
+        `⚠️ Build still has errors after ${repairRounds} repair attempt(s). Files are saved so you can review/fix them, but the live preview may not run.`,
+        { buildVerified: false, repairRounds },
+      );
+    }
+
     logger.info(
-      `[orchestrator] Build finished: ${fileCount} files, ${agentResults.length} agents ran`,
+      `[orchestrator] Build finished: ${fileCount} files, ${agentResults.length} agents ran, buildVerified=${buildVerified}, repairRounds=${repairRounds}`,
     );
 
     // Write worklog + manifest + .palmkit/ memory
@@ -715,8 +787,10 @@ export async function runOrchestratedBuild(
         supabase,
         jobId,
         'file_generation_completed' as any,
-        `🚀 Orchestrated build complete: ${fileCount} files, ${totalSize} chars, ${agentResults.length} agents`,
-        { fileCount, agents: agentResults.map((a) => a.role) },
+        `🚀 Orchestrated build complete: ${fileCount} files, ${totalSize} chars, ${agentResults.length} agents${
+          buildVerified === true ? ' — build verified ✓' : buildVerified === false ? ' — build has errors ⚠️' : ''
+        }`,
+        { fileCount, agents: agentResults.map((a) => a.role), buildVerified, repairRounds },
       );
 
       try {
@@ -811,5 +885,6 @@ export async function runOrchestratedBuild(
     // detached copy of the files, so this is safe and prevents the registry
     // from growing without bound on the long-running worker).
     disposeProjectFiles(jobId);
+    disposeBuildResult(jobId);
   }
 }
