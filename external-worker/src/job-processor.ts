@@ -18,7 +18,15 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { logger } from './logger';
-import { planProject, generateStaticFiles, validateGeneration, repairGeneration, generateEdit, type GenerationResult } from './generator';
+import {
+  planProject,
+  generateStaticFiles,
+  validateGeneration,
+  repairGeneration,
+  generateEdit,
+  detectAppTypeFromFiles,
+  type GenerationResult,
+} from './generator';
 import { runAgentBuild } from './agent-builder';
 import { runOrchestratedBuild } from './orchestrator';
 import { checkBuild, BUILD_CHECK_TYPES } from './build-checker';
@@ -349,6 +357,26 @@ export async function processNextJob(supabase: SupabaseClient): Promise<void> {
             rawText: agentResult.rawText,
             appType: spec.appType,
           };
+
+          /*
+           * Refine the app type from the files the model ACTUALLY produced.
+           * planProject's prompt-keyword guess is often wrong for anything off
+           * the beaten path (a canvas game, a less common framework, a TS/JS
+           * mismatch). The generated package.json + entry files are the source
+           * of truth, and this drives the correct preview runtime + build check.
+           */
+          const filesRecord: Record<string, string> = {};
+          for (const f of agentResult.files) {
+            filesRecord[f.path] = (f.content as string) ?? '';
+          }
+          const detectedAppType = detectAppTypeFromFiles(filesRecord);
+
+          if (detectedAppType && detectedAppType !== result.appType) {
+            logger.info(
+              `Job ${job.id}: appType refined ${result.appType} → ${detectedAppType} (from generated files)`,
+            );
+            result.appType = detectedAppType;
+          }
 
           /*
            * The orchestrator already emitted a file_written event (with inline

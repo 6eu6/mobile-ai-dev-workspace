@@ -29,7 +29,7 @@ import { filterTools, getAgentConfig, DEFAULT_AGENT_FLOW, type AgentRole } from 
 import { logger } from './logger';
 import { emitEvent } from './event-emitter';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { FileOperation } from './generator';
+import { detectAppTypeFromFiles, type FileOperation } from './generator';
 import {
   readWorklog,
   appendToWorklog,
@@ -684,6 +684,14 @@ export async function runOrchestratedBuild(
     const fileCount = Object.keys(files).length;
 
     /*
+     * Use the app type implied by the ACTUAL generated files for the
+     * entry-point check (falls back to the prompt-based guess). Prevents a
+     * wrong keyword guess (e.g. "static" for a project the model built with
+     * React) from failing an otherwise-valid build on the entry-point rule.
+     */
+    const effectiveAppType = detectAppTypeFromFiles(files) ?? appType;
+
+    /*
      * ENTRY POINT CHECK — prevent "successful" builds with no entry point.
      *
      * The previous MIN_FILES check forced a minimum file count per app type
@@ -715,7 +723,7 @@ export async function runOrchestratedBuild(
       'react-native': [/^(App|app)\.(tsx|jsx|ts|js)$/i, /^app\/(app|_layout)\.(tsx|ts)$/i],
     };
 
-    const patterns = (appType && ENTRY_POINT_PATTERNS[appType]) || [];
+    const patterns = (effectiveAppType && ENTRY_POINT_PATTERNS[effectiveAppType]) || [];
     const filePaths = Object.keys(files);
     /*
      * Check that AT LEAST ONE entry point pattern matches.
@@ -728,7 +736,7 @@ export async function runOrchestratedBuild(
      * one src/ source file exists. If either is missing, fail.
      */
     const hasEntryPoint = patterns.length === 0 || (() => {
-      if (appType === 'react' || appType === 'vue') {
+      if (effectiveAppType === 'react' || effectiveAppType === 'vue') {
         // Need BOTH index.html AND a source file in src/
         const hasIndexHtml = filePaths.some((p) => /^index\.html$/i.test(p));
         const hasSourceFile = filePaths.some((p) => /^src\/.*(jsx|tsx|vue|js|ts)$/i.test(p));
