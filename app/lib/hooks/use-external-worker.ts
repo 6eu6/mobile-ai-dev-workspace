@@ -74,6 +74,7 @@ function dispatchJobEvent(ev: JobEvent): void {
           pending: todos.filter((t) => t.status === 'pending').length,
         };
         setAgentTodos(agent, todos, counts);
+        console.log(`[Palmkit] dispatch: todos_updated agent=${agent} count=${todos.length}`);
         break;
       }
 
@@ -89,6 +90,7 @@ function dispatchJobEvent(ev: JobEvent): void {
             timestamp,
             seq: ev.seq,
           });
+          console.log(`[Palmkit] dispatch: reasoning agent=${agent} seq=${ev.seq} text=${text.slice(0, 30)}`);
         }
         break;
       }
