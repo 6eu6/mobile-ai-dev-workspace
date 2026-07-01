@@ -418,6 +418,19 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                     ) : null;
                   }}
                 </ClientOnly>
+                {/*
+                 * BuildStream renders INLINE inside the conversation thread as
+                 * the assistant's turn (not a separate panel pinned above the
+                 * input). The build — reasoning, files, commands, plan, result —
+                 * flows as part of the chat, right after the user's message,
+                 * exactly how an agent shows its work in a conversation. Reads
+                 * workerEventsStore + workerProgressStore; hides when no data.
+                 */}
+                {chatStarted && (
+                  <div className="w-full max-w-chat mx-auto px-4">
+                    <BuildStream />
+                  </div>
+                )}
                 <ScrollToBottom />
               </StickToBottom.Content>
               <div
@@ -459,16 +472,6 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                   {llmErrorAlert && <LlmErrorAlert alert={llmErrorAlert} clearAlert={() => clearLlmErrorAlert?.()} />}
                 </div>
                 {progressAnnotations && <ProgressCompilation data={progressAnnotations} />}
-                {/*
-                 * BuildStream — the unified, chronological build timeline
-                 * (Phase C). Replaces the four separate panels (WorkerProgress,
-                 * ThoughtProcessPanel, MultiAgentTodos, ActivityStream) with a
-                 * single CLI-style stream: reasoning, files, commands, and the
-                 * plan interleaved in the order they happened, grouped per
-                 * agent. Reads workerEventsStore + workerProgressStore (already
-                 * populated by Chat.client). Hides itself when there's no data.
-                 */}
-                <BuildStream />
                 {isInterruptedGeneration && (
                   <div className="flex items-center justify-between gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm">
                     <div className="flex items-center gap-2">

@@ -494,8 +494,8 @@ export const BuildStream = memo(() => {
           />
         </div>
       </div>
-      {/* chronological stream */}
-      <div className="max-h-[52vh] overflow-y-auto px-4 py-3">
+      {/* chronological stream — expands inline; the chat thread handles scroll */}
+      <div className="px-4 py-3">
         {sections.map((s, i) => (
           <SectionView key={i} section={s} />
         ))}
