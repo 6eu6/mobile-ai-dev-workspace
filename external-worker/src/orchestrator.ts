@@ -84,25 +84,30 @@ export async function runOrchestratedBuild(
     }
   }, 10000);
 
-  // Hard-cap the whole orchestrator at 20 minutes.
+  // Hard-cap the whole orchestrator at 15 minutes using AbortController.
   //
-  // 8 minutes was too tight (real projects need Builder + Tester + npm install
-  // + npm run build which alone can take 5-7 min on cold E2B sandboxes).
-  // 15 minutes still wasn't enough for complex 15+ file React projects with
-  // GLM-5.x (which tends to not call done() proactively and burns steps).
+  // The previous approach used setTimeout + throw. That DID NOT WORK because:
+  //   1. streamText runs as an async iterator (for await ... of fullStream).
+  //   2. The throw inside setTimeout fires in a separate event-loop turn.
+  //   3. The throw doesn't propagate into the active async iterator — the
+  //      for-await loop keeps waiting for the next chunk that never arrives.
+  //   4. Result: the Builder "finishes" writing files, then hangs forever
+  //      reading/rewriting the same file in a loop, never calling done(),
+  //      and the timeout never triggers a clean abort.
   //
-  // 20 minutes gives enough headroom for the largest reasonable projects
-  // while still bounding hung LLM providers.
+  // The fix: AbortController. We pass abortSignal to streamText, which
+  // forwards it to the underlying fetch() call. When abort() fires:
+  //   - The fetch is cancelled → the LLM stream closes.
+  //   - The for-await loop sees an error chunk (or throws) → breaks out.
+  //   - We catch the AbortError and fail the job cleanly.
   //
-  // Note: the throw here crashes the worker process. systemd's Restart=always
-  // brings it back up in ~5s, but the in-flight job is lost. The job_processor
-  // catch block marks the job as failed_clean. Future improvement: use
-  // AbortController.signal passed to streamText so we can cancel the LLM
-  // request without crashing the worker.
-  const HARD_TIMEOUT_MS = 20 * 60 * 1000;
+  // 15 minutes is enough for real projects (Builder ~6min + Tester ~5min
+  // + npm install on cold E2B ~3min). Anything beyond that is a stuck LLM.
+  const HARD_TIMEOUT_MS = 15 * 60 * 1000;
+  const abortController = new AbortController();
   const hardTimeout = setTimeout(() => {
-    logger.error(`[orchestrator] Hard timeout (${HARD_TIMEOUT_MS}ms) reached for job ${jobId}`);
-    throw new Error(`Build exceeded ${HARD_TIMEOUT_MS / 1000}s timeout`);
+    logger.error(`[orchestrator] Hard timeout (${HARD_TIMEOUT_MS}ms) reached for job ${jobId} — aborting stream`);
+    abortController.abort();
   }, HARD_TIMEOUT_MS);
 
   const agentResults: OrchestratorResult['agentResults'] = [];
@@ -110,6 +115,14 @@ export async function runOrchestratedBuild(
   let builderContext = '';
   let testerContext = '';
   let overallSuccess = false;
+
+  /*
+   * Loop detection — track how many times each file path is written per
+   * build. If a path is written 4+ times, the LLM is stuck in a loop
+   * (observed with GLM-4.7: write → read → rewrite → hang). We abort
+   * the stream to prevent the build from running forever.
+   */
+  const fileWriteCounts = new Map<string, number>();
 
   try {
     for (const role of DEFAULT_AGENT_FLOW) {
@@ -337,6 +350,17 @@ export async function runOrchestratedBuild(
         temperature: 0.7,
         maxTokens: stepMaxTokens,
         providerOptions,
+        /*
+         * abortSignal — when abortController.abort() fires (either from the
+         * 15-min hard timeout OR from the loop-detection below), streamText
+         * cancels the underlying fetch() to the LLM provider. The fullStream
+         * iterator then throws an AbortError which we catch below and convert
+         * to a clean job failure.
+         *
+         * Without this signal, the stream would hang forever waiting for
+         * chunks from a provider that's not sending any.
+         */
+        abortSignal: abortController.signal,
       });
 
       let streamError: Error | null = null;
@@ -392,6 +416,47 @@ export async function runOrchestratedBuild(
             case 'tool-call': {
               await flushText(true);
 
+              /*
+               * LOOP DETECTION — catch the case where the LLM is stuck
+               * rewriting the same file over and over (observed with GLM-4.7:
+               * it wrote App.tsx, read it, then rewrote it 11 chars shorter,
+               * then hung). Without this, the build runs forever until the
+               * 15-min hard timeout.
+               *
+               * Track write_file/edit_file calls per path. If the same path
+               * is written 4+ times, abort the stream and fail the job —
+               * the LLM is in a loop it can't escape.
+               */
+              if (part.toolName === 'write_file' || part.toolName === 'edit_file') {
+                const filePath = (part.args as any)?.path as string | undefined;
+
+                if (filePath) {
+                  fileWriteCounts.set(filePath, (fileWriteCounts.get(filePath) ?? 0) + 1);
+                  const writes = fileWriteCounts.get(filePath)!;
+
+                  if (writes >= 4) {
+                    logger.error(
+                      `[orchestrator] Loop detected: ${config.name} wrote ${filePath} ${writes} times. Aborting stream.`,
+                    );
+                    await emitEvent(
+                      supabase,
+                      jobId,
+                      'job_failed',
+                      `Build stalled: ${config.name} rewrote ${filePath} ${writes} times (likely stuck in a loop). Please try again.`,
+                      { reason: 'loop_detected', file: filePath, count: writes },
+                    );
+                    abortController.abort();
+                    break;
+                  }
+
+                  if (writes === 3) {
+                    logger.warn(
+                      `[orchestrator] ${config.name} wrote ${filePath} ${writes} times — one more will abort.`,
+                    );
+                  }
+                }
+              }
+
               if (!SELF_EMITTING_TOOLS.has(part.toolName)) {
                 await emitToolEvent(part.toolName, part.args);
               }
@@ -444,6 +509,34 @@ export async function runOrchestratedBuild(
           }
         }
       } catch (streamErr) {
+        /*
+         * Distinguish AbortError (triggered by our hard timeout or loop
+         * detection) from other stream errors. For AbortError, we don't
+         * rethrow — the agent loop should just stop and we report a clean
+         * failure to the user. For other errors, rethrow so the outer
+         * catch can fail the job.
+         */
+        const errName = (streamErr as any)?.name ?? '';
+        const isAbort = errName === 'AbortError' ||
+          errName === 'AbortError2' ||
+          /abort/i.test(String((streamErr as any)?.message ?? ''));
+
+        if (isAbort) {
+          logger.warn(`[orchestrator] Stream aborted for ${config.name} (timeout or loop detection)`);
+          // Don't rethrow — just stop this agent's loop.
+          // The job_processor will see 0 files and fail the job cleanly.
+          streamError = null;
+
+          // Mark this agent as failed in results so the failure path triggers
+          agentResults.push({
+            role,
+            success: false,
+            text: '',
+            duration: Date.now() - agentStart,
+          });
+          break; // exit the for-await loop
+        }
+
         streamError = streamErr instanceof Error
           ? streamErr
           : new Error(String(streamErr));
