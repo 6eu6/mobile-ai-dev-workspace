@@ -102,6 +102,7 @@ export function ThoughtProcessPanel() {
 
 function ThoughtEntry({ entry, isLast }: { entry: ReasoningEntry; isLast: boolean }) {
   const agentColor = AGENT_COLOR[entry.agent] ?? AGENT_COLOR.Worker;
+  const isStreaming = isLast && entry.isFinal === false;
 
   return (
     <div className="flex gap-2 items-start">
@@ -120,10 +121,12 @@ function ThoughtEntry({ entry, isLast }: { entry: ReasoningEntry; isLast: boolea
         <p
           className={classNames(
             'text-xs leading-relaxed text-palmkit-elements-textTertiary whitespace-pre-wrap break-words',
-            isLast && 'animate-pulse-once',
           )}
         >
           {entry.text}
+          {isStreaming && (
+            <span className="inline-block w-1.5 h-3 ml-0.5 bg-palmkit-elements-textTertiary animate-pulse align-middle" />
+          )}
         </p>
       </div>
     </div>

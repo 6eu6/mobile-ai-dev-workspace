@@ -16,7 +16,7 @@
  * more reliable. The Orchestrator LLM planning can be added in Phase 2.
  */
 
-import { generateText, type LanguageModelV1, type ToolSet } from 'ai';
+import { streamText, type LanguageModelV1, type ToolSet } from 'ai';
 import { createAgentTools, resetProjectFiles, getProjectFiles } from './agent-tools';
 import { filterTools, getAgentConfig, DEFAULT_AGENT_FLOW, type AgentRole } from './agent-registry';
 import { logger } from './logger';
@@ -177,19 +177,156 @@ export async function runOrchestratedBuild(
 
       /*
        * providerOptions for OpenRouter reasoning support.
-       * For reasoning-capable models (DeepSeek-R1, GLM-5.2, o1/o3, etc.),
-       * pass reasoning: { enabled: true } via providerOptions. The OpenAI
-       * SDK shim forwards this as an extra body param that OpenRouter
-       * recognizes. Non-OpenRouter providers ignore the `openrouter` key.
+       *
+       * OpenRouter's API accepts `reasoning: { enabled: true }` in the request
+       * body. For models that support reasoning (DeepSeek-R1, GLM-4.7+,
+       * Claude thinking, o1/o3, etc.), this makes the model emit reasoning
+       * tokens alongside regular text. For models that don't support it,
+       * OpenRouter silently ignores the parameter — so it's always safe to
+       * pass.
+       *
+       * We always pass it for OpenRouter (no regex check) because:
+       * 1. OpenRouter itself decides whether to use it based on model capability
+       * 2. Even GLM-4.7 supports reasoning — the old regex missed it
+       * 3. Harmless for non-reasoning models
        */
-      const isReasoningModel = /\b(r1|reasoning|thinking|o1|o3|o4)\b/i.test(
-        (model as any)?.modelId ?? '',
-      );
-      const providerOptions = isReasoningModel
-        ? { openrouter: { reasoning: { enabled: true } } }
-        : undefined;
+      const providerOptions = { openrouter: { reasoning: { enabled: true } } };
 
-      const result = await generateText({
+      /*
+       * STREAMING — use streamText (not generateText) so the LLM's text and
+       * reasoning tokens arrive as live delta chunks. This is what makes the
+       * "Thought Process" panel stream in real-time, exactly like Claude Code
+       * / Cursor / Super Z.
+       *
+       * We iterate result.fullStream to consume every chunk:
+       *   - text-delta  → the model's regular text output (narration between
+       *                   tool calls). This IS the reasoning the user sees.
+       *   - reasoning   → dedicated reasoning tokens (for models that support
+       *                   a separate reasoning channel, e.g. DeepSeek-R1).
+       *   - tool-call   → the model is requesting a tool execution. We emit
+       *                   a tool-specific event for tools that don't emit
+       *                   their own (read_file, run_shell, etc.). Tools that
+       *                   DO emit their own (write_file, update_todos, done)
+       *                   are skipped here to avoid duplication.
+       *   - step-finish → a step boundary. Flush the text buffer and increment
+       *                   the stepId so the next text-delta starts a new
+       *                   reasoning entry in the client UI.
+       *   - finish      → the entire stream is done. Capture finishReason.
+       *   - error       → stream error. Log and rethrow.
+       *
+       * The text buffer is flushed every 500ms (or on step-finish / tool-call)
+       * so the user sees live streaming without flooding the event system.
+       */
+      let stepId = 0;
+      let textBuffer = '';
+      let lastFlushTime = Date.now();
+      const FLUSH_INTERVAL_MS = 500;
+
+      const flushText = async (isFinal: boolean) => {
+        if (textBuffer.length === 0) {
+          return;
+        }
+
+        const text = textBuffer;
+        textBuffer = '';
+
+        try {
+          await emitEvent(
+            supabase,
+            jobId,
+            'reasoning',
+            `💭 ${config.name}: ${text.slice(0, 200)}${text.length > 200 ? '…' : ''}`,
+            {
+              agent: config.name,
+              role,
+              text,
+              stepId,
+              isFinal,
+            },
+          );
+        } catch {
+          /* best-effort */
+        }
+      };
+
+      /*
+       * Tools that emit their OWN events from inside their execute() function.
+       * We do NOT emit orchestrator-level events for these to avoid duplication.
+       * Tools NOT in this set get an orchestrator-level event on tool-call.
+       */
+      const SELF_EMITTING_TOOLS = new Set([
+        'write_file',
+        'edit_file',
+        'delete_file',
+        'update_todos',
+        'done',
+      ]);
+
+      const emitToolEvent = async (toolName: string, args: any) => {
+        try {
+          if (toolName === 'read_file') {
+            await emitEvent(
+              supabase,
+              jobId,
+              'file_chunk',
+              `📖 [${config.name}] Read: ${args.path}`,
+              { agent: config.name, kind: 'read', path: args.path },
+            );
+          } else if (toolName === 'search_code') {
+            await emitEvent(
+              supabase,
+              jobId,
+              'file_chunk',
+              `🔍 [${config.name}] Search: ${args.pattern}`,
+              { agent: config.name, kind: 'search', pattern: args.pattern },
+            );
+          } else if (toolName === 'list_files') {
+            await emitEvent(
+              supabase,
+              jobId,
+              'file_chunk',
+              `📋 [${config.name}] List files`,
+              { agent: config.name, kind: 'list' },
+            );
+          } else if (toolName === 'list_uploads') {
+            await emitEvent(
+              supabase,
+              jobId,
+              'file_chunk',
+              `📤 [${config.name}] List uploads`,
+              { agent: config.name, kind: 'list_uploads' },
+            );
+          } else if (toolName === 'run_shell') {
+            await emitEvent(
+              supabase,
+              jobId,
+              'file_chunk',
+              `⚡ [${config.name}] Run: ${args.command?.slice(0, 80)}`,
+              { agent: config.name, kind: 'shell', command: args.command },
+            );
+          } else if (toolName === 'run_tests') {
+            await emitEvent(
+              supabase,
+              jobId,
+              'file_chunk',
+              `🧪 [${config.name}] Run tests`,
+              { agent: config.name, kind: 'tests' },
+            );
+          } else if (toolName === 'take_screenshot') {
+            await emitEvent(
+              supabase,
+              jobId,
+              'file_chunk',
+              `📸 [${config.name}] Screenshot`,
+              { agent: config.name, kind: 'screenshot' },
+            );
+          }
+        } catch {
+          /* best-effort */
+        }
+      };
+
+      const streamResult = streamText({
         model,
         system: config.systemPrompt,
         prompt: agentPrompt,
@@ -197,234 +334,133 @@ export async function runOrchestratedBuild(
         maxSteps: config.maxSteps,
         temperature: 0.7,
         maxTokens: stepMaxTokens,
-        ...(providerOptions ? { providerOptions } : {}),
-        onStepFinish: async ({ toolCalls, text, stepType, usage }) => {
-          /*
-           * Reasoning event — the LLM's own thinking text emitted between tool
-           * calls. Renders as a collapsible "Thought Process" panel in the
-           * client UI (matching chat.z.ai / Claude Code).
-           *
-           * Tool-using models (like GLM-4.7 in tool mode) often don't emit
-           * any text — they jump straight to tool calls. In that case we
-           * synthesize a one-line reasoning snippet from the first tool call
-           * so the user always sees SOMETHING in the Thought Process panel.
-           *
-           * Capped at 600 chars/event to keep Realtime payloads reasonable.
-           */
-          let reasoningText = (text || '').trim();
-
-          if (!reasoningText && toolCalls.length > 0) {
-            /*
-             * Synthesize reasoning from the first tool call. This gives the
-             * user visibility into what the agent is doing even when the LLM
-             * doesn't emit narration text.
-             */
-            const firstCall = toolCalls[0];
-            const args = (firstCall.args as any) || {};
-
-            switch (firstCall.toolName) {
-              case 'write_file':
-                reasoningText = `Writing ${args.path}…`;
-                break;
-              case 'edit_file':
-                reasoningText = `Editing ${args.path}…`;
-                break;
-              case 'read_file':
-                reasoningText = `Reading ${args.path} to understand its current state…`;
-                break;
-              case 'delete_file':
-                reasoningText = `Removing ${args.path}…`;
-                break;
-              case 'search_code':
-                reasoningText = `Searching the codebase for "${args.pattern}"…`;
-                break;
-              case 'list_files':
-                reasoningText = 'Reviewing the current project structure…';
-                break;
-              case 'list_uploads':
-                reasoningText = 'Checking for user-uploaded files…';
-                break;
-              case 'run_shell':
-                reasoningText = `Running shell command: ${String(args.command || '').slice(0, 80)}…`;
-                break;
-              case 'run_tests':
-                reasoningText = 'Running the test suite to verify nothing broke…';
-                break;
-              case 'take_screenshot':
-                reasoningText = 'Taking a screenshot to visually verify the app…';
-                break;
-              case 'update_todos':
-                reasoningText = 'Updating the task list…';
-                break;
-              case 'done':
-                reasoningText = `Wrapping up: ${String(args.summary || '').slice(0, 100)}`;
-                break;
-              default:
-                reasoningText = `Calling tool: ${firstCall.toolName}`;
-            }
-          }
-
-          if (reasoningText) {
-            const snippet = reasoningText.slice(0, 600);
-            try {
-              await emitEvent(
-                supabase,
-                jobId,
-                'reasoning',
-                `💭 ${config.name}: ${snippet}${reasoningText.length > 600 ? '…' : ''}`,
-                { agent: config.name, role, text: snippet, stepType },
-              );
-            } catch {
-              /* best-effort */
-            }
-          }
-
-          /*
-           * Tool-call events — emit one event per tool call so the activity
-           * stream UI can group them into "Explored X files, Ran Y commands"
-           * summary entries by agent.
-           *
-           * The previous code emitted every event as `file_chunk` type —
-           * which made the client unable to distinguish write_file from
-           * run_shell from read_file. Now each tool gets its own event type
-           * matching its semantic meaning:
-           *   - write_file / edit_file / delete_file  →  file_written (with detail)
-           *   - read_file                              →  file_read
-           *   - run_shell / run_tests                  →  shell_executed
-           *   - search_code / list_files / list_uploads → (still file_chunk — these are quick)
-           *   - take_screenshot                         →  file_chunk (screenshot is rare)
-           *   - done                                    →  file_generation_completed
-           *
-           * For backward compat with the old WorkerProgress.tsx that filters
-           * on `file_written`, we keep the write_file → file_written mapping.
-           */
-          for (const tc of toolCalls) {
-            const toolName = tc.toolName;
-            const args = tc.args as any;
-
-            try {
-              if (toolName === 'write_file') {
-                // file_written with full detail — the client uses this to
-                // render files live in the Code tab (with inline content
-                // if present in args.content).
-                const content = typeof args.content === 'string' ? args.content : JSON.stringify(args.content ?? '');
-                const lines = content.split('\n').length;
-                const MAX_INLINE = 100 * 1024;
-                const inlineContent = content.length <= MAX_INLINE ? content : undefined;
-
-                await emitEvent(
-                  supabase,
-                  jobId,
-                  'file_written',
-                  `📝 [${config.name}] Written: ${args.path} (${lines} lines)`,
-                  {
-                    filePath: args.path,
-                    path: args.path,
-                    lines,
-                    size: content.length,
-                    content: inlineContent,
-                    truncated: inlineContent === undefined,
-                    agent: config.name,
-                  },
-                );
-              } else if (toolName === 'edit_file') {
-                await emitEvent(
-                  supabase,
-                  jobId,
-                  'file_written',
-                  `✏️ [${config.name}] Edited: ${args.path}`,
-                  {
-                    filePath: args.path,
-                    path: args.path,
-                    agent: config.name,
-                    kind: 'edit',
-                  },
-                );
-              } else if (toolName === 'delete_file') {
-                await emitEvent(
-                  supabase,
-                  jobId,
-                  'file_written',
-                  `🗑️ [${config.name}] Deleted: ${args.path}`,
-                  { filePath: args.path, path: args.path, agent: config.name, kind: 'delete' },
-                );
-              } else if (toolName === 'read_file') {
-                await emitEvent(
-                  supabase,
-                  jobId,
-                  'file_chunk',
-                  `📖 [${config.name}] Read: ${args.path}`,
-                  { agent: config.name, kind: 'read', path: args.path },
-                );
-              } else if (toolName === 'search_code') {
-                await emitEvent(
-                  supabase,
-                  jobId,
-                  'file_chunk',
-                  `🔍 [${config.name}] Search: ${args.pattern}`,
-                  { agent: config.name, kind: 'search', pattern: args.pattern },
-                );
-              } else if (toolName === 'list_files') {
-                await emitEvent(
-                  supabase,
-                  jobId,
-                  'file_chunk',
-                  `📋 [${config.name}] List files`,
-                  { agent: config.name, kind: 'list' },
-                );
-              } else if (toolName === 'list_uploads') {
-                await emitEvent(
-                  supabase,
-                  jobId,
-                  'file_chunk',
-                  `📤 [${config.name}] List uploads`,
-                  { agent: config.name, kind: 'list_uploads' },
-                );
-              } else if (toolName === 'run_shell') {
-                await emitEvent(
-                  supabase,
-                  jobId,
-                  'file_chunk',
-                  `⚡ [${config.name}] Run: ${args.command?.slice(0, 80)}`,
-                  { agent: config.name, kind: 'shell', command: args.command },
-                );
-              } else if (toolName === 'run_tests') {
-                await emitEvent(
-                  supabase,
-                  jobId,
-                  'file_chunk',
-                  `🧪 [${config.name}] Run tests`,
-                  { agent: config.name, kind: 'tests' },
-                );
-              } else if (toolName === 'take_screenshot') {
-                await emitEvent(
-                  supabase,
-                  jobId,
-                  'file_chunk',
-                  `📸 [${config.name}] Screenshot`,
-                  { agent: config.name, kind: 'screenshot' },
-                );
-              } else if (toolName === 'update_todos') {
-                // update_todos already emits its own todos_updated event
-                // from inside the tool's execute() function. Don't double-emit.
-              } else if (toolName === 'done') {
-                await emitEvent(
-                  supabase,
-                  jobId,
-                  'file_chunk',
-                  `✅ [${config.name}] Done: ${(args.summary || '').slice(0, 80)}`,
-                  { agent: config.name, kind: 'done', summary: args.summary },
-                );
-              }
-            } catch {
-              /* best-effort — don't let one failed event kill the build */
-            }
-          }
-        },
+        providerOptions,
       });
 
+      let streamError: Error | null = null;
+
+      try {
+        for await (const part of streamResult.fullStream) {
+          switch (part.type) {
+            /*
+             * text-delta — the model's regular text output.
+             * For tool-using models, this is the narration between tool calls
+             * ("Let me create the App.tsx file now..."). This IS the reasoning
+             * the user wants to see streaming live.
+             */
+            case 'text-delta': {
+              textBuffer += part.textDelta;
+
+              if (Date.now() - lastFlushTime > FLUSH_INTERVAL_MS) {
+                await flushText(false);
+                lastFlushTime = Date.now();
+              }
+
+              break;
+            }
+
+            /*
+             * reasoning — dedicated reasoning tokens (separate from text).
+             * Models like DeepSeek-R1 emit these via a special channel.
+             * We treat them the same as text-delta — both go into the
+             * Thought Process panel.
+             */
+            case 'reasoning': {
+              textBuffer += part.textDelta;
+
+              if (Date.now() - lastFlushTime > FLUSH_INTERVAL_MS) {
+                await flushText(false);
+                lastFlushTime = Date.now();
+              }
+
+              break;
+            }
+
+            /*
+             * tool-call — the model is requesting a tool execution.
+             * Flush any accumulated text first (closes the current reasoning
+             * bubble), then emit a tool-specific event for tools that don't
+             * emit their own.
+             *
+             * Note: the tool's execute() function runs AFTER this part
+             * (during the tool-result phase). Tools that emit their own
+             * events (write_file, update_todos, etc.) will fire their events
+             * during execution — we don't duplicate them here.
+             */
+            case 'tool-call': {
+              await flushText(true);
+
+              if (!SELF_EMITTING_TOOLS.has(part.toolName)) {
+                await emitToolEvent(part.toolName, part.args);
+              }
+
+              break;
+            }
+
+            /*
+             * step-finish — a step boundary (one LLM call + tool executions
+             * completed). Flush remaining text and increment stepId so the
+             * next text-delta starts a fresh reasoning entry in the client.
+             */
+            case 'step-finish': {
+              await flushText(true);
+              stepId++;
+              break;
+            }
+
+            /*
+             * finish — the entire stream is done (all steps completed).
+             * Flush any remaining text.
+             */
+            case 'finish': {
+              await flushText(true);
+              break;
+            }
+
+            /*
+             * error — the stream encountered an error. Capture it and break
+             * out of the loop. We rethrow after the loop so the outer
+             * try/catch can handle it.
+             */
+            case 'error': {
+              logger.error(`[orchestrator] Stream error in ${config.name}: ${part.error}`);
+              streamError = part.error instanceof Error
+                ? part.error
+                : new Error(String(part.error));
+              break;
+            }
+
+            default:
+              // Other part types (tool-call-streaming-start, tool-call-delta,
+              // tool-result, step-start, source, file, reasoning-signature,
+              // redacted-reasoning) — not relevant to event emission.
+              break;
+          }
+
+          if (streamError) {
+            break;
+          }
+        }
+      } catch (streamErr) {
+        streamError = streamErr instanceof Error
+          ? streamErr
+          : new Error(String(streamErr));
+      }
+
+      if (streamError) {
+        throw streamError;
+      }
+
+      /*
+       * After the stream completes, access the final values.
+       * These are Promises in streamText (unlike generateText where they're
+       * synchronous). Await them to get the actual values.
+       */
+      const agentText = await streamResult.text;
+      const finishReason = await streamResult.finishReason;
+      const steps = await streamResult.steps;
+
       const agentDuration = Date.now() - agentStart;
-      const agentText = result.text;
       /*
        * Success criteria — only true when the LLM finished cleanly AND made at
        * least one tool call. The old code (result.finishReason !== 'error')
@@ -436,8 +472,7 @@ export async function runOrchestratedBuild(
        * (hit step limit, didn't reach done()). The orchestrator's overallSuccess
        * check still requires fileCount > 0.
        */
-      const finishReason = result.finishReason;
-      const madeToolCalls = (result.steps?.length ?? 0) > 0;
+      const madeToolCalls = (steps?.length ?? 0) > 0;
       const agentSuccess =
         finishReason !== 'error' &&
         finishReason !== 'length' &&
@@ -473,7 +508,7 @@ export async function runOrchestratedBuild(
       });
 
       logger.info(
-        `[orchestrator] ${config.name} finished: ${result.finishReason}, ${agentText.length} chars, ${agentDuration}ms`,
+        `[orchestrator] ${config.name} finished: ${finishReason}, ${agentText.length} chars, ${agentDuration}ms`,
       );
 
       // Store context for next agent

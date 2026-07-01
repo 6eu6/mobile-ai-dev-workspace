@@ -19,7 +19,7 @@ import {
   resetPreviewFiles,
   previewFilesStore,
   setAgentTodos,
-  appendReasoning,
+  upsertReasoning,
   startActivityGroup,
   appendActivityEvent,
   endActivityGroup,
@@ -80,10 +80,12 @@ function dispatchJobEvent(ev: JobEvent): void {
       case 'reasoning': {
         const text = (payload.text as string | undefined) ?? '';
         if (text) {
-          appendReasoning({
+          upsertReasoning({
             agent,
             text,
             stepType: payload.stepType as string | undefined,
+            stepId: payload.stepId as number | undefined,
+            isFinal: payload.isFinal as boolean | undefined,
             timestamp,
             seq: ev.seq,
           });

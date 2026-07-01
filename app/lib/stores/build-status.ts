@@ -143,26 +143,71 @@ export function clearAgentTodos(): void {
 
 /*
  * Reasoning text — emitted by the orchestrator as a `reasoning` event
- * between tool calls. Stored as a flat list per agent so the UI can render
- * a chronological "Thought Process" panel.
+ * containing the LLM's actual text output (streamed live via streamText).
+ *
+ * The orchestrator flushes the text buffer every 500ms, so multiple events
+ * arrive for the SAME step. Each event carries a `stepId` so the client can
+ * merge them into a single entry (append text to the existing entry with
+ * the same agent+stepId, instead of creating a new entry each time).
+ *
+ * This is what makes the Thought Process panel stream live — the text grows
+ * in place as new chunks arrive, exactly like Claude Code / Cursor / Super Z.
  */
 export interface ReasoningEntry {
   agent: string;
   text: string;
   stepType?: string;
+  stepId?: number;
+  isFinal?: boolean;
   timestamp: number;
   seq: number;
 }
 
 export const reasoningStore = atom<ReasoningEntry[]>([]);
 
-export function appendReasoning(entry: ReasoningEntry): void {
+/*
+ * Upsert reasoning — if an entry with the same (agent, stepId) already
+ * exists, append the new text to it (streaming merge). Otherwise create a
+ * new entry.
+ *
+ * The dedup-by-seq check prevents the same event from being processed twice
+ * (can happen when both Realtime and polling deliver the same event).
+ */
+export function upsertReasoning(entry: ReasoningEntry): void {
   const current = reasoningStore.get();
-  // Avoid duplicates by seq
+
+  // Dedup by seq — if we've already seen this exact event, skip.
   if (current.some((r) => r.seq === entry.seq)) {
     return;
   }
+
+  // If this entry has a stepId, try to find an existing entry with the
+  // same agent+stepId to merge into (streaming append).
+  if (entry.stepId !== undefined) {
+    const mergeIdx = current.findIndex(
+      (r) => r.agent === entry.agent && r.stepId === entry.stepId,
+    );
+
+    if (mergeIdx !== -1) {
+      // Merge: append the new text to the existing entry.
+      const updated = [...current];
+      updated[mergeIdx] = {
+        ...updated[mergeIdx],
+        text: updated[mergeIdx].text + entry.text,
+        isFinal: entry.isFinal,
+      };
+      reasoningStore.set(updated);
+      return;
+    }
+  }
+
+  // No existing entry to merge into — create a new one.
   reasoningStore.set([...current, entry]);
+}
+
+/** @deprecated Use upsertReasoning instead — it handles streaming merge. */
+export function appendReasoning(entry: ReasoningEntry): void {
+  upsertReasoning(entry);
 }
 
 export function clearReasoning(): void {
