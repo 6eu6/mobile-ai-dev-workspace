@@ -451,6 +451,22 @@ export const ChatImpl = memo(
       /* Phase 10: sync real progress percentage + current step */
       setWorkerProgress(extWorkerState.progress, extWorkerState.currentStep);
 
+      /*
+       * SHOW WORKBENCH when the first file is written or build is ready.
+       *
+       * The legacy chat path shows the workbench via onArtifactOpen in
+       * useMessageParser (when it parses <palmkitArtifact> XML tags).
+       * But the external worker path doesn't use XML — it uses write_file
+       * tool calls. So showWorkbench was NEVER set to true, and the
+       * workbench (with the preview iframe) stayed off-screen.
+       *
+       * Fix: show the workbench as soon as we have files or the build
+       * is ready. This makes the preview visible alongside the chat.
+       */
+      if (extWorkerState.files.length > 0 || extWorkerState.status === 'ready_for_preview') {
+        workbenchStore.showWorkbench.set(true);
+      }
+
       /* Phase 8: track job ID for ZIP export + persist to chat metadata for restore-on-reload */
       if (extWorkerState.status === 'ready_for_preview' && extWorkerState.jobId) {
         setCurrentJobId(extWorkerState.jobId);
