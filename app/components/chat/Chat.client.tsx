@@ -100,75 +100,62 @@ const processSampledMessages = createSampler(
   50,
 );
 
-/** Build the assistant message content from Oracle-worker events — creates a streaming-like experience. */
+/**
+ * Build the assistant message content from Oracle-worker events.
+ *
+ * IMPORTANT: This is a SHORT summary only — NOT a flat event log.
+ * The detailed event information (reasoning, todos, file writes, shell
+ * commands) is rendered by the dedicated panels above the chat input:
+ *   - ThoughtProcessPanel (💭 reasoning text)
+ *   - MultiAgentTodos (📋 todos checklist)
+ *   - ActivityStream (🤖 grouped file/command activity)
+ *   - WorkerProgress (📊 progress bar + stage pipeline)
+ *
+ * Previously this function dumped every event as a flat text line, which
+ * flooded the chat with "+tailwind.config.js", "Todos: 4/10 done",
+ * "Building... (50s)" etc. — making the chat unreadable and pushing the
+ * structured panels out of view.
+ *
+ * Now: just the status header + file count. The panels do the rest.
+ */
 function buildWorkerStreamContent(state: import('~/lib/hooks/use-external-worker').ExternalWorkerState): string {
   if (state.status === 'failed_clean') {
     return `❌ **Build failed**\n\n${state.error ?? 'Unknown error'}`;
   }
 
-  const lines: string[] = [];
   const isDone = state.status === 'ready_for_preview';
+  const fileCount = state.files.length;
 
-  lines.push(
-    isDone
-      ? `✅ **Build complete** — ${state.files.length} file${state.files.length !== 1 ? 's' : ''} generated`
-      : '🔨 **Building your project...**',
-  );
+  if (isDone) {
+    return `✅ **Build complete** — ${fileCount} file${fileCount !== 1 ? 's' : ''} generated. Preview is loading…`;
+  }
 
-  for (const event of state.events) {
-    // Skip duplicate events (Realtime + polling may double-send)
-    switch (event.type) {
-      case 'planning_started':
-        lines.push('', '📋 Planning app structure...');
-        break;
-      case 'planning_completed':
-        lines.push('✓ Plan ready');
-        break;
-      case 'file_generation_started':
-        lines.push('', '⚙️ Generating files...');
-        break;
-      case 'file_written': {
-        const path = event.payload?.filePath as string | undefined;
-        const lc = event.payload?.lineCount as number | undefined;
-        const agent = event.payload?.agent as string | undefined;
+  // During build — just a short status line. The panels show the details.
+  const reasoningCount = state.events.filter((e) => e.type === 'reasoning').length;
+  const todosCount = state.events.filter((e) => e.type === 'todos_updated').length;
+  const filesWritten = state.events.filter((e) => e.type === 'file_written').length;
 
-        if (path) {
-          const agentPrefix = agent ? `[${agent}] ` : '';
-          lines.push(`  ${agentPrefix}\`+${path}\`${lc != null ? `  (${lc} lines)` : ''}`);
-        }
+  const parts: string[] = ['🔨 **Building your project…**'];
 
-        break;
-      }
-      case 'file_chunk': {
-        // Real-time agent messages (from onStepFinish events)
-        const msg = event.message;
-        if (msg && !lines.includes(msg)) {
-          lines.push(`  ${msg}`);
-        }
-        break;
-      }
-      case 'build_check_started':
-        lines.push('', '🔧 Verifying build...');
-        break;
-      case 'build_check_passed':
-        lines.push('✓ Build verified');
-        break;
-      case 'ready_for_preview':
-        lines.push('', 'Switch to the **Preview** tab to see your project.');
-        break;
-      case 'job_failed':
-        lines.push('', `❌ ${event.message}`);
-        break;
-      default:
-        // Show any unknown event message
-        if (event.message && event.message.length > 0) {
-          lines.push(`  ${event.message}`);
-        }
-        break;
+  if (filesWritten > 0) {
+    parts.push(`${filesWritten} file${filesWritten !== 1 ? 's' : ''} written so far`);
+  }
+
+  if (todosCount > 0) {
+    const lastTodo = state.events
+      .filter((e) => e.type === 'todos_updated')
+      .slice(-1)[0];
+
+    if (lastTodo?.message) {
+      parts.push(lastTodo.message);
     }
   }
 
-  return lines.join('\n');
+  if (reasoningCount > 0) {
+    parts.push(`${reasoningCount} reasoning step${reasoningCount !== 1 ? 's' : ''}`);
+  }
+
+  return parts.join(' · ');
 }
 
 interface ChatProps {

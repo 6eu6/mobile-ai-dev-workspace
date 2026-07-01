@@ -108,17 +108,39 @@ export function useWorkerSandbox(): WorkerSandboxResult {
   }, []);
 
   /*
-   * NO auto-launch — sandbox only starts when user clicks "Launch Preview".
+   * AUTO-LAUNCH sandbox when build reaches ready_for_preview.
    *
-   * Previously, the sandbox auto-launched on page load for desktop WebContainer
-   * types. This caused:
-   * - "جاري تشغيل الساندبوكس" appearing immediately on chat open (bad UX)
-   * - Resource waste (sandbox boots even if user just wants to read code)
-   * - Mobile users seeing sandbox errors before touching Preview tab
+   * The user shouldn't have to click "Launch Preview" manually — that's bad UX.
+   * When the build completes (jobStatus === 'ready_for_preview'), we
+   * automatically launch the sandbox if:
+   *   - The app type is E2B-compatible (react/vue/nextjs/python)
+   *   - There are files in previewFilesStore
+   *   - The sandbox isn't already running
    *
-   * Now: sandbox is LAZY — only boots when user explicitly clicks the
-   * "Launch Preview" button in the Preview tab.
+   * This matches the behavior of Claude Code / Cursor / v0 — the preview
+   * appears automatically when the build is done.
    */
+  useEffect(() => {
+    if (
+      buildStatus.jobStatus === 'ready_for_preview' &&
+      canUseSandbox &&
+      !launchRef.current &&
+      sandboxState === 'idle'
+    ) {
+      const files = previewFilesStore.get();
+
+      if (Object.keys(files).length > 0) {
+        // Small delay to let workbenchStore.files sync from previewFilesStore
+        const timer = setTimeout(() => {
+          doLaunch().catch((err) => {
+            console.error('[worker-sandbox] auto-launch failed:', err);
+          });
+        }, 500);
+
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [buildStatus.jobStatus, canUseSandbox, sandboxState, doLaunch]);
 
   const launchSandbox = useCallback(() => {
     doLaunch().catch(console.error);
@@ -154,13 +176,15 @@ async function _runInE2B(
 
   setState('starting');
 
-  // Poll until the cloud dev server responds (up to ~160s).
-  for (let i = 0; i < 40; i++) {
+  // Poll until the cloud dev server responds (up to ~90s).
+  // Was 40 attempts × 4s = 160s — too long, users gave up waiting.
+  // Now 30 attempts × 3s = 90s — reasonable for npm install + vite start.
+  for (let i = 0; i < 30; i++) {
     if (await checkRemoteStatus(sandbox.id, 3000)) {
       break;
     }
 
-    await new Promise((r) => setTimeout(r, 4000));
+    await new Promise((r) => setTimeout(r, 3000));
   }
 
   setUrl(previewUrl);
