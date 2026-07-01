@@ -653,7 +653,7 @@ export async function runOrchestratedBuild(
      */
     const ENTRY_POINT_PATTERNS: Record<string, RegExp[]> = {
       static: [/^index\.html$/i, /^src\/.*\.(js|ts)$/i],
-      react: [/^index\.html$/i, /^src\/(App|Main|main|app)\.(jsx|tsx|js|ts)$/i],
+      react: [/^index\.html$/i, /^src\/(App|Main|main|app)\.(jsx|tsx|js|ts)$/i, /^src\/(main|index)\.(jsx|tsx|js|ts)$/i],
       nextjs: [/^(app|pages)\/(page|index)\.(jsx|tsx|js|ts)$/i, /^src\/(app|pages)\//i],
       vue: [/^index\.html$/i, /^src\/(App|main)\.(vue|js|ts)$/i],
       python: [/^(app|main|server|run)\.py$/i],
@@ -663,7 +663,26 @@ export async function runOrchestratedBuild(
 
     const patterns = (appType && ENTRY_POINT_PATTERNS[appType]) || [];
     const filePaths = Object.keys(files);
-    const hasEntryPoint = patterns.length === 0 || filePaths.some((p) => patterns.some((re) => re.test(p)));
+    /*
+     * Check that AT LEAST ONE entry point pattern matches.
+     * For React: need index.html AND a src/App.* or src/main.* file.
+     * The previous code used .some() on the patterns array which meant
+     * index.html ALONE (without src/App.jsx) would pass. That's wrong —
+     * Vite needs BOTH index.html (entry) and src/main.jsx (React mount).
+     *
+     * Now: for react/vue, we check that index.html exists AND at least
+     * one src/ source file exists. If either is missing, fail.
+     */
+    const hasEntryPoint = patterns.length === 0 || (() => {
+      if (appType === 'react' || appType === 'vue') {
+        // Need BOTH index.html AND a source file in src/
+        const hasIndexHtml = filePaths.some((p) => /^index\.html$/i.test(p));
+        const hasSourceFile = filePaths.some((p) => /^src\/.*(jsx|tsx|vue|js|ts)$/i.test(p));
+        return hasIndexHtml && hasSourceFile;
+      }
+      // For other app types, any single pattern match is enough
+      return filePaths.some((p) => patterns.some((re) => re.test(p)));
+    })();
 
     if (fileCount > 0 && !hasEntryPoint) {
       logger.error(
@@ -671,9 +690,9 @@ export async function runOrchestratedBuild(
       );
 
       const errorMsg =
-        `Build produced ${fileCount} file${fileCount !== 1 ? 's' : ''} but is missing a required entry point. ` +
+        `Build produced ${fileCount} file${fileCount !== 1 ? 's' : ''} but is missing required entry point files. ` +
         `Files written: ${filePaths.join(', ')}. ` +
-        `For a ${appType} app, you need an entry point (e.g. index.html + src/App.jsx for React, app.py for Python). ` +
+        `For a ${appType} app, you need BOTH index.html AND source files (src/App.jsx, src/main.jsx). ` +
         `Please try again — the model called done() before writing the main application files.`;
 
       await emitEvent(supabase, jobId, 'job_failed', errorMsg);
