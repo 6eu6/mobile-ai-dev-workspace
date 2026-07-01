@@ -214,13 +214,29 @@ export async function loader(args: LoaderFunctionArgs) {
 
   const files: Array<{ path: string; size_bytes: number; integrity: string; mime_type: string }> = manifest ?? [];
 
-  // Fetch recent job_events (for frontend progress display).
+  /*
+   * Fetch job_events for the frontend progress display.
+   *
+   * IMPORTANT: this must NOT be capped low. A single build routinely emits
+   * 100+ events (reasoning, file_written, todos, tool calls). The old
+   * `.limit(50)` returned only seq 0-49, so the frontend froze mid-build and
+   * never received the terminal `ready_for_preview` event — the #1 cause of
+   * builds appearing "stuck / never ending".
+   *
+   * Incremental fetch: callers may pass `?sinceSeq=<n>` to receive only
+   * events with a higher seq than they already have (the polling loop tracks
+   * lastEventSeq). Default 0 returns the full ordered log.
+   */
+  const sinceSeqRaw = url.searchParams.get('sinceSeq');
+  const sinceSeq = sinceSeqRaw ? Number.parseInt(sinceSeqRaw, 10) || 0 : 0;
+
   const { data: events } = await authed.supabase
     .from('job_events')
     .select('type, seq, message, payload, created_at')
     .eq('job_id', jobId)
+    .gt('seq', sinceSeq - 1) // seq >= sinceSeq (inclusive of first unseen)
     .order('seq', { ascending: true })
-    .limit(50);
+    .limit(2000);
 
   const vr = (job.validation_result ?? {}) as Record<string, unknown>;
 

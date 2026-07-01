@@ -55,6 +55,7 @@ function dispatchJobEvent(ev: JobEvent): void {
   }
 
   const payload = ev.payload ?? {};
+
   /*
    * Agent name fallback: if the event doesn't have an explicit `agent`
    * field in the payload, try to infer it from the event type and context.
@@ -64,20 +65,23 @@ function dispatchJobEvent(ev: JobEvent): void {
    * Builder is the agent that emits these). For file_chunk/file_written
    * events, we check the payload.agent field.
    */
-  const agent = (payload.agent as string | undefined) ??
-    (ev.type === 'todos_updated' || ev.type === 'reasoning' ? 'Builder' : 'Worker');
+  const agent =
+    (payload.agent as string | undefined) ??
+    (ev.type === 'todos_updated' || ev.type === 'reasoning' || ev.type === 'file_written' ? 'Builder' : 'Worker');
   const timestamp = new Date(ev.created_at).getTime() || Date.now();
 
   try {
     switch (ev.type) {
       case 'todos_updated': {
         const todos = (payload.todos as AgentTodo[] | undefined) ?? [];
-        const counts = (payload.counts as {
-          total: number;
-          done: number;
-          inProgress: number;
-          pending: number;
-        } | undefined) ?? {
+        const counts = (payload.counts as
+          | {
+              total: number;
+              done: number;
+              inProgress: number;
+              pending: number;
+            }
+          | undefined) ?? {
           total: todos.length,
           done: todos.filter((t) => t.status === 'done').length,
           inProgress: todos.filter((t) => t.status === 'in_progress').length,
@@ -90,6 +94,7 @@ function dispatchJobEvent(ev: JobEvent): void {
 
       case 'reasoning': {
         const text = (payload.text as string | undefined) ?? '';
+
         if (text) {
           upsertReasoning({
             agent,
@@ -102,6 +107,7 @@ function dispatchJobEvent(ev: JobEvent): void {
           });
           console.log(`[Palmkit] dispatch: reasoning agent=${agent} seq=${ev.seq} text=${text.slice(0, 30)}`);
         }
+
         break;
       }
 
@@ -120,10 +126,17 @@ function dispatchJobEvent(ev: JobEvent): void {
 
       case 'file_written':
       case 'file_chunk': {
-        // Only append to activity group if we know which agent emitted it.
-        // Events without an agent field (e.g. planning_started, file_chunk
-        // from the keep-alive timer) are skipped — they're not agent actions.
-        if (!payload.agent) {
+        /*
+         * file_chunk events without an agent are keep-alive heartbeats
+         * ("⏳ Building... (Ns)") — skip them, they're not agent actions.
+         *
+         * file_written events are ALWAYS an agent action (a file was written
+         * to the workspace). The worker doesn't always stamp `agent` on them,
+         * so we fall back to 'Builder' (computed above) instead of dropping
+         * the event — otherwise written files never show in the Activity
+         * Stream.
+         */
+        if (ev.type === 'file_chunk' && !payload.agent) {
           break;
         }
 
@@ -159,7 +172,13 @@ export interface JobEvent {
 export interface ExternalWorkerState {
   jobId: string | null;
   status:
-    'idle' | 'pending' | 'generating' | 'validating' | 'uploading_snapshot' | 'ready_for_preview' | 'failed_clean';
+    | 'idle'
+    | 'pending'
+    | 'generating'
+    | 'validating'
+    | 'uploading_snapshot'
+    | 'ready_for_preview'
+    | 'failed_clean';
   progress: number;
   currentStep: string;
   error: string | null;
@@ -428,8 +447,11 @@ export function useExternalWorker() {
       setState({ ...initialState, status: 'pending', currentStep: 'queued' });
       fetchedPreview.current = false;
       resetPreviewFiles();
-      // Reset all progress stores (todos, reasoning, activity groups) so
-      // stale data from a previous build doesn't bleed into the new one.
+
+      /*
+       * Reset all progress stores (todos, reasoning, activity groups) so
+       * stale data from a previous build doesn't bleed into the new one.
+       */
       resetAllProgressStores();
 
       try {
@@ -864,10 +886,12 @@ export function useExternalWorker() {
       // Subscribe to Realtime (same as startJob)
       subscribeRealtime(jobId);
 
-      // Start polling — the poll will see the terminal status (ready_for_preview
-      // or failed_clean) and process ALL events through dispatchJobEvent before
-      // stopping. This populates the reasoningStore, agentTodosStore, and
-      // activityGroupsStore so the panels render correctly.
+      /*
+       * Start polling — the poll will see the terminal status (ready_for_preview
+       * or failed_clean) and process ALL events through dispatchJobEvent before
+       * stopping. This populates the reasoningStore, agentTodosStore, and
+       * activityGroupsStore so the panels render correctly.
+       */
       pollJob(jobId);
     },
     [subscribeRealtime, pollJob],
