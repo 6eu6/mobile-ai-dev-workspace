@@ -1,21 +1,37 @@
 /**
  * Sandbox hook — connects worker-built files to E2B cloud sandbox.
  *
- * E2B is the ONLY sandbox for ALL devices (desktop + mobile + tablet).
- * WebContainer was removed because it doesn't work on mobile and requires
- * SharedArrayBuffer which many browsers lack.
+ * ARCHITECTURE (matches Super Z / Claude Code / Cursor):
  *
- * Routing:
- *   static                → blob URL (handled in Preview.tsx, not here)
- *   react / vue / nextjs  → E2B sandbox (npm install + npm run dev)
- *   python                → E2B sandbox (python app.py)
- *   flutter / react-native → E2B sandbox (if web build available)
+ * The MODEL (the orchestrator's Builder/Tester agents) is the BRAIN. It
+ * decides everything:
+ *   - When to write files (via write_file tool)
+ *   - When to run shell commands (via run_shell tool)
+ *   - When the build is done (via done() tool)
+ *
+ * The sandbox is a TOOL under the model's control — NOT a timer-based
+ * auto-launch. The model runs `npm install` and `npm run dev` inside the
+ * E2B sandbox via the `run_shell` agent tool. The preview appears when
+ * the model's Tester agent verifies the build is running.
+ *
+ * This hook provides:
+ *   1. A manual `launchSandbox()` function for the "Launch Preview" button
+ *   2. State tracking (idle/writing/installing/starting/ready/error)
+ *   3. NO auto-launch — the model controls when the sandbox starts
+ *
+ * The previous auto-launch (triggered on `ready_for_preview`) was WRONG
+ * because:
+ *   - It started the sandbox BEFORE the user could see the files
+ *   - It raced with the file injection into workbenchStore
+ *   - It ignored the model's intent (the model might want to verify
+ *     files before starting a dev server)
+ *   - It showed "Installing & launching preview" while files were
+ *     still being written — confusing UX
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useStore } from '@nanostores/react';
-import { buildStatusStore } from '~/lib/stores/build-status';
-import { previewFilesStore } from '~/lib/stores/build-status';
+import { buildStatusStore, previewFilesStore } from '~/lib/stores/build-status';
 import {
   isRemoteSandboxAvailable,
   createRemoteSandbox,
@@ -35,17 +51,6 @@ export interface WorkerSandboxResult {
   canUseSandbox: boolean;
 }
 
-/*
- * E2B is the ONLY sandbox for all devices and all app types.
- * WebContainer was removed because:
- * 1. It doesn't work on mobile (the primary target for Palmkit)
- * 2. It requires SharedArrayBuffer / COOP-COEP which many browsers lack
- * 3. It's unreliable in headless / embedded webviews
- *
- * E2B works everywhere — desktop, mobile, tablet — because it's a cloud
- * sandbox. The user clicks "Launch Preview" → E2B starts → npm install →
- * npm run dev → preview URL is served back.
- */
 const E2B_TYPES = new Set(['react', 'vue', 'nextjs', 'python', 'flutter', 'react-native']);
 
 export function useWorkerSandbox(): WorkerSandboxResult {
@@ -95,7 +100,6 @@ export function useWorkerSandbox(): WorkerSandboxResult {
     setSandboxError(undefined);
 
     try {
-      // E2B for ALL devices and ALL app types (no WebContainer)
       setUsesMobileE2B(true);
       await _runInE2B(files, type, setSandboxState, setSandboxUrl, setSandboxError);
     } catch (err) {
@@ -108,39 +112,28 @@ export function useWorkerSandbox(): WorkerSandboxResult {
   }, []);
 
   /*
-   * AUTO-LAUNCH sandbox when build reaches ready_for_preview.
+   * NO AUTO-LAUNCH.
    *
-   * The user shouldn't have to click "Launch Preview" manually — that's bad UX.
-   * When the build completes (jobStatus === 'ready_for_preview'), we
-   * automatically launch the sandbox if:
-   *   - The app type is E2B-compatible (react/vue/nextjs/python)
-   *   - There are files in previewFilesStore
-   *   - The sandbox isn't already running
+   * The sandbox starts ONLY when:
+   *   1. The user clicks "Launch Preview" (calls launchSandbox())
+   *   2. OR the model's Tester agent explicitly runs `npm run dev` via
+   *      the run_shell tool (which runs inside the E2B sandbox on the
+   *      worker — separate from this client-side preview sandbox)
    *
-   * This matches the behavior of Claude Code / Cursor / v0 — the preview
-   * appears automatically when the build is done.
+   * The model is the brain. It decides when the build is ready for
+   * preview — not a timer or a status flag.
+   *
+   * The previous auto-launch (on `ready_for_preview`) caused:
+   *   - "Installing & launching preview" appearing before files were
+   *     visible in the workspace
+   *   - Race conditions between file injection and sandbox startup
+   *   - Confusion: user sees sandbox starting while the model is still
+   *     writing files
+   *
+   * Now: the build completes → files appear in the workspace → user
+   * sees the complete project → user (or model) decides to launch
+   * preview. Clean, predictable, model-driven.
    */
-  useEffect(() => {
-    if (
-      buildStatus.jobStatus === 'ready_for_preview' &&
-      canUseSandbox &&
-      !launchRef.current &&
-      sandboxState === 'idle'
-    ) {
-      const files = previewFilesStore.get();
-
-      if (Object.keys(files).length > 0) {
-        // Small delay to let workbenchStore.files sync from previewFilesStore
-        const timer = setTimeout(() => {
-          doLaunch().catch((err) => {
-            console.error('[worker-sandbox] auto-launch failed:', err);
-          });
-        }, 500);
-
-        return () => clearTimeout(timer);
-      }
-    }
-  }, [buildStatus.jobStatus, canUseSandbox, sandboxState, doLaunch]);
 
   const launchSandbox = useCallback(() => {
     doLaunch().catch(console.error);
@@ -177,8 +170,6 @@ async function _runInE2B(
   setState('starting');
 
   // Poll until the cloud dev server responds (up to ~90s).
-  // Was 40 attempts × 4s = 160s — too long, users gave up waiting.
-  // Now 30 attempts × 3s = 90s — reasonable for npm install + vite start.
   for (let i = 0; i < 30; i++) {
     if (await checkRemoteStatus(sandbox.id, 3000)) {
       break;
@@ -187,18 +178,7 @@ async function _runInE2B(
     await new Promise((r) => setTimeout(r, 3000));
   }
 
-  /*
-   * Set the pf_preview cookie so the /preview/* proxy (functions/preview/[[path]].ts)
-   * knows which E2B sandbox to forward to. Then use the SAME-ORIGIN proxy URL
-   * (https://palmkit.app/preview/) instead of the direct E2B URL.
-   *
-   * WHY: the parent page is cross-origin-isolated (COEP: require-corp). A
-   * cross-origin iframe (e2b.app) without COEP headers is BLOCKED by the
-   * browser — the user sees a blank iframe. The proxy adds the correct
-   * COEP + CORP headers to every response, making it embeddable.
-   *
-   * This matches what remotePreview.ts already does for mobile.
-   */
+  // Set the pf_preview cookie for the same-origin proxy.
   if (typeof document !== 'undefined') {
     document.cookie = `pf_preview=${sandbox.id}:3000; path=/; samesite=lax`;
   }
