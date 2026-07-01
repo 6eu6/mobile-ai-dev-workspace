@@ -178,6 +178,19 @@ export async function processNextJob(supabase: SupabaseClient): Promise<void> {
 
     let result: GenerationResult;
 
+    /*
+     * Whether the generation phase already emitted a `file_written` event for
+     * every file (with inline content). The orchestrator path does this via the
+     * write_file tool as the agent works; the edit path (generateEdit) does NOT.
+     *
+     * When true, the R2 upload phase must NOT re-emit file_written — doing so
+     * double-counts files ("16 files" for an 8-file app) and creates a second,
+     * duplicate Builder activity group that never receives an agent_completed
+     * event, so it stays stuck on "Running" and makes a finished build look
+     * like it never ends.
+     */
+    let filesAnnouncedDuringGeneration = false;
+
     if (editJobId) {
       await updateJobProgress(supabase, job.id, 10, 'load_existing_files');
       await emitEvent(supabase, job.id, 'edit_started', 'Loading existing project files...');
@@ -336,6 +349,13 @@ export async function processNextJob(supabase: SupabaseClient): Promise<void> {
             rawText: agentResult.rawText,
             appType: spec.appType,
           };
+
+          /*
+           * The orchestrator already emitted a file_written event (with inline
+           * content) for every file as the Builder wrote it. Mark that so the
+           * upload phase below does NOT re-emit them as duplicates.
+           */
+          filesAnnouncedDuringGeneration = true;
 
           logger.info(`Job ${job.id}: agent build complete → ${agentResult.files.length} files (${agentResult.totalDuration}ms)`);
         } else {
@@ -553,8 +573,16 @@ export async function processNextJob(supabase: SupabaseClient): Promise<void> {
         return;
       }
 
-      // Emit file_written event (frontend shows "Created index.html (284 lines)")
-      await emitFileWritten(supabase, job.id, file.path, lineCount, sizeBytes);
+      /*
+       * Emit a file_written event ONLY if the generation phase didn't already
+       * announce this file (i.e. the edit path). For the orchestrator path the
+       * agent already emitted file_written per file with inline content, so
+       * re-emitting here would double-count and spawn a duplicate "Running"
+       * activity group. See filesAnnouncedDuringGeneration above.
+       */
+      if (!filesAnnouncedDuringGeneration) {
+        await emitFileWritten(supabase, job.id, file.path, lineCount, sizeBytes);
+      }
 
       // Mirror to Supabase Storage (read-through cache for the browser).
       // Mirror BOTH the legacy key AND the workspace key so /api/workspace
