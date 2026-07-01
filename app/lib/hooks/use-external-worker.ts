@@ -649,11 +649,20 @@ export function useExternalWorker() {
                     const previewFiles: Record<string, string> = {};
 
                     for (const f of listData.files) {
-                      // Skip metadata files
-                      if (f === 'worklog.md' || f === 'manifest.json') {
-                        continue;
-                      }
-
+                      /*
+                       * Fetch ALL files from the workspace — including worklog.md,
+                       * manifest.json, and .palmkit/* metadata.
+                       *
+                       * The user explicitly requested that the workspace should
+                       * show ALL project files (not just code files). Skipping
+                       * worklog/manifest/.palmkit made the workspace look
+                       * incomplete and hid the agent's memory layer from the
+                       * user.
+                       *
+                       * The only files we skip are node_modules (which don't
+                       * exist in R2 anyway) and files larger than 500KB (to
+                       * avoid memory issues with huge generated assets).
+                       */
                       try {
                         const fileResp = await fetch(
                           `/api/workspace?action=file&projectId=${chatId}&path=${encodeURIComponent(f)}`,
