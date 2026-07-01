@@ -187,6 +187,24 @@ async function _runInE2B(
     await new Promise((r) => setTimeout(r, 3000));
   }
 
-  setUrl(previewUrl);
+  /*
+   * Set the pf_preview cookie so the /preview/* proxy (functions/preview/[[path]].ts)
+   * knows which E2B sandbox to forward to. Then use the SAME-ORIGIN proxy URL
+   * (https://palmkit.app/preview/) instead of the direct E2B URL.
+   *
+   * WHY: the parent page is cross-origin-isolated (COEP: require-corp). A
+   * cross-origin iframe (e2b.app) without COEP headers is BLOCKED by the
+   * browser — the user sees a blank iframe. The proxy adds the correct
+   * COEP + CORP headers to every response, making it embeddable.
+   *
+   * This matches what remotePreview.ts already does for mobile.
+   */
+  if (typeof document !== 'undefined') {
+    document.cookie = `pf_preview=${sandbox.id}:3000; path=/; samesite=lax`;
+  }
+
+  const proxyUrl = typeof window !== 'undefined' ? `${window.location.origin}/preview/` : '/preview/';
+
+  setUrl(proxyUrl);
   setState('ready');
 }
