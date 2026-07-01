@@ -45,26 +45,35 @@ export const description = atom<string | undefined>(undefined);
 export const chatMetadata = atom<IChatMetadata | undefined>(undefined);
 
 /*
- * safeGetStore — read the current value of a nanostore atom by module path
- * + export name. Used during snapshot save to capture the live progress data
- * (todos, reasoning, activity groups) without creating a circular import.
+ * readProgressStores — read the current values of the structured progress
+ * stores (agentTodosStore, reasoningStore, activityGroupsStore) for snapshot
+ * persistence.
  *
- * Returns undefined if the module/export isn't found (best-effort — snapshot
- * save should never crash the chat).
+ * We use a direct dynamic import (NOT a string variable) so Vite can
+ * statically analyze and bundle the module. The previous safeGetStore
+ * helper used a string variable which broke Vite's module resolution —
+ * the import silently returned undefined and the snapshot was saved
+ * without the progress data.
+ *
+ * Returns undefined for any store that can't be read (best-effort —
+ * snapshot save should never crash the chat).
  */
-async function safeGetStore<T = any>(modulePath: string, exportName: string): Promise<T | undefined> {
+async function readProgressStores(): Promise<{
+  agentTodos?: any;
+  reasoning?: any;
+  activityGroups?: any;
+}> {
   try {
-    const mod: any = await import(/* @vite-ignore */ modulePath);
-    const atom = mod?.[exportName];
+    const mod: any = await import('~/lib/stores/build-status');
 
-    if (atom && typeof atom.get === 'function') {
-      return atom.get() as T;
-    }
+    return {
+      agentTodos: mod.agentTodosStore?.get?.(),
+      reasoning: mod.reasoningStore?.get?.(),
+      activityGroups: mod.activityGroupsStore?.get?.(),
+    };
   } catch {
-    // best-effort
+    return {};
   }
-
-  return undefined;
 }
 
 /**
@@ -232,12 +241,10 @@ function createDebouncedSnapshotSaver(delay: number = 2000) {
              * page mid-build and still see the Todos / Thought Process /
              * Activity Stream panels populated.
              *
-             * We import the stores lazily to avoid a circular dependency
-             * (build-status.ts imports from persistence/types.ts via re-exports).
+             * Without persistence, these stores live only in nanostores
+             * (in-memory) and disappear on page refresh.
              */
-            agentTodos: await safeGetStore('~/lib/stores/build-status', 'agentTodosStore'),
-            reasoning: await safeGetStore('~/lib/stores/build-status', 'reasoningStore'),
-            activityGroups: await safeGetStore('~/lib/stores/build-status', 'activityGroupsStore'),
+            ...(await readProgressStores()),
           };
           await setSnapshot(dbInstance, chatIdVal, snapshot);
         } catch (error) {
@@ -1260,6 +1267,12 @@ ${value.content}
         chatIndex: chatIdx,
         files,
         summary: chatSummary,
+        /*
+         * Persist structured progress data (todos, reasoning, activity groups)
+         * so the panels survive page refresh. Same pattern as the debounced
+         * snapshot saver above.
+         */
+        ...(await readProgressStores()),
       };
 
       try {
