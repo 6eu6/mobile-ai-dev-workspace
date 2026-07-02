@@ -233,6 +233,116 @@ export async function listWorkspaceFiles(projectId: string): Promise<string[]> {
 }
 
 /**
+ * Recursively list every file (relative path) under a Supabase Storage prefix.
+ *
+ * Supabase Storage's `list()` is single-level: folders come back as entries
+ * whose `id` is null. We recurse into those to enumerate the whole tree.
+ */
+async function listStorageRecursive(
+  supabase: SupabaseClient,
+  bucket: string,
+  prefix: string,
+): Promise<string[]> {
+  const out: string[] = [];
+
+  const walk = async (dir: string): Promise<void> => {
+    const { data, error } = await supabase.storage.from(bucket).list(dir, { limit: 1000 });
+
+    if (error || !data) {
+      return;
+    }
+
+    for (const entry of data) {
+      const full = dir ? `${dir}/${entry.name}` : entry.name;
+      const e = entry as { id: string | null; metadata: unknown };
+
+      // A folder placeholder has null id/metadata — recurse into it.
+      if (e.id === null || e.metadata === null) {
+        await walk(full);
+      } else {
+        out.push(full);
+      }
+    }
+  };
+
+  await walk(prefix);
+
+  // Return paths relative to the prefix.
+  return out.map((p) => (p.startsWith(prefix + '/') ? p.slice(prefix.length + 1) : p));
+}
+
+/**
+ * Hydrate a project's R2 workspace from its Supabase Storage mirror.
+ *
+ * The Oracle worker reads project files from R2 (via read_file's fallback and
+ * readWorklog). But a *forked* project's workspace is created by the Cloudflare
+ * `/api/fork-chat` route, which can only write to Supabase Storage — it has no
+ * R2 credentials. So when the forked project's first build starts, R2 is empty
+ * and the worker would treat it as a brand-new project (losing the copied files
+ * and the handoff memory).
+ *
+ * This bridges that gap: if the project has NO worklog in R2 but DOES have a
+ * workspace mirror in Supabase Storage, copy the whole mirror into R2 so the
+ * normal continuation path (worklog present → Researcher runs; read_file finds
+ * files; handoff.md injected) works exactly as it does for an in-place edit.
+ *
+ * Short-circuits (no-op) when:
+ *   - R2 already has a worklog (normal edit / already hydrated), or
+ *   - Supabase Storage has no mirror (genuinely new project).
+ *
+ * Returns the number of files hydrated.
+ */
+export async function hydrateWorkspaceFromStorage(
+  projectId: string,
+  userId: string,
+  supabase: SupabaseClient,
+): Promise<number> {
+  try {
+    // If R2 already has this project's worklog, it's not a cold forked workspace.
+    const existingWorklog = await getFileText(buildWorklogKey(projectId));
+
+    if (existingWorklog) {
+      return 0;
+    }
+
+    const bucket = 'palmkit-files';
+    const prefix = `${userId}/projects/${projectId}/workspace`;
+    const relPaths = await listStorageRecursive(supabase, bucket, prefix);
+
+    if (relPaths.length === 0) {
+      return 0;
+    }
+
+    logger.info(`[workspace] Hydrating R2 from Supabase Storage for ${projectId}: ${relPaths.length} files`);
+
+    let hydrated = 0;
+
+    for (const rel of relPaths) {
+      try {
+        const { data, error } = await supabase.storage.from(bucket).download(`${prefix}/${rel}`);
+
+        if (error || !data) {
+          continue;
+        }
+
+        const text = await data.text();
+        await putFile(buildWorkspaceKey(projectId, rel), text);
+        hydrated++;
+      } catch (e) {
+        logger.warn(`[workspace] Hydrate failed for ${rel}: ${e}`);
+      }
+    }
+
+    logger.info(`[workspace] Hydrated ${hydrated}/${relPaths.length} files into R2 for ${projectId}`);
+
+    return hydrated;
+  } catch (e) {
+    logger.warn(`[workspace] hydrateWorkspaceFromStorage failed for ${projectId}: ${e}`);
+    return 0;
+  }
+}
+
+/**
  * Read a file from the workspace by relative path.
  */
 export async function readWorkspaceFile(projectId: string, filePath: string): Promise<string | null> {

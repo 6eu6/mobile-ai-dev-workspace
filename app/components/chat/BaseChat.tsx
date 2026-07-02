@@ -27,6 +27,7 @@ import type { ModelInfo } from '~/lib/modules/llm/types';
 import ProgressCompilation from './ProgressCompilation';
 import { BuildStream } from './BuildStream';
 import { SessionAdvisor } from './SessionAdvisor';
+import { ContinuationSuggestion } from './ContinuationSuggestion';
 import type { ProgressAnnotation } from '~/types/context';
 import { SupabaseChatAlert } from '~/components/chat/SupabaseAlert';
 import { expoUrlAtom } from '~/lib/stores/qrCodeStore';
@@ -475,6 +476,7 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                 {/* Honest, transparent nudge to start a fresh chat once the
                     project is genuinely large (based on real workspace size). */}
                 {chatStarted && <SessionAdvisor />}
+                {chatStarted && <ContinuationSuggestion sendMessage={sendMessage} />}
                 {progressAnnotations && <ProgressCompilation data={progressAnnotations} />}
                 {isInterruptedGeneration && (
                   <div className="flex items-center justify-between gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm">

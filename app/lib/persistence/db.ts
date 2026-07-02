@@ -16,6 +16,15 @@ export interface IChatMetadata {
    * Persisted so the preview can decide iframe-blob vs WebContainer vs E2B on reload.
    */
   palmkitAppType?: string;
+
+  /** Source chat/project id this chat was forked from via "Continue in a fresh chat". */
+  continuedFrom?: string;
+
+  /**
+   * A suggested next step shown as a one-click chip when a continued chat opens.
+   * Cleared (removed from metadata) once the user acts on it or dismisses it.
+   */
+  continuationSuggestion?: string;
 }
 
 const logger = createScopedLogger('ChatHistory');
@@ -38,11 +47,14 @@ export async function openDatabase(): Promise<IDBDatabase | undefined> {
         if (!db.objectStoreNames.contains('chats')) {
           const store = db.createObjectStore('chats', { keyPath: 'id' });
           store.createIndex('id', 'id', { unique: true });
-          // urlId is NOT unique — the external worker path sometimes saves
-          // chats without a urlId (undefined), and multiple undefined values
-          // violate the unique constraint. This caused "Failed to save chat:
-          // Unable to add key to index 'urlId'" which blocked the UI from
-          // updating from 'generating' to 'ready_for_preview'.
+
+          /*
+           * urlId is NOT unique — the external worker path sometimes saves
+           * chats without a urlId (undefined), and multiple undefined values
+           * violate the unique constraint. This caused "Failed to save chat:
+           * Unable to add key to index 'urlId'" which blocked the UI from
+           * updating from 'generating' to 'ready_for_preview'.
+           */
           store.createIndex('urlId', 'urlId', { unique: false });
         }
       }

@@ -32,6 +32,7 @@ import { runOrchestratedBuild } from './orchestrator';
 import { checkBuild, BUILD_CHECK_TYPES } from './build-checker';
 import { createRunner } from './build-runner';
 import { putFile, getFileText, buildKey, buildWorkspaceKey } from './r2-client';
+import { hydrateWorkspaceFromStorage } from './workspace-manager';
 import { getUserApiKey } from './key-fetcher';
 import { emitEvent, emitFileWritten } from './event-emitter';
 import { createHash } from 'crypto';
@@ -320,6 +321,30 @@ export async function processNextJob(supabase: SupabaseClient): Promise<void> {
          * workspace key that /api/workspace reads from.
          */
         const projectId = (job.validation_result as any)?.chatId ?? job.project_id ?? job.id;
+
+        /*
+         * CONTINUATION HYDRATION — for a project forked via /api/fork-chat, the
+         * workspace (copied files + worklog + .palmkit/handoff.md) lives only in
+         * Supabase Storage because the Cloudflare route has no R2 credentials.
+         * Copy that mirror into R2 now so the orchestrator's normal continuation
+         * path (worklog present → Researcher runs, read_file finds files, handoff
+         * injected) works. No-op for normal new/edit builds.
+         */
+        try {
+          const hydrated = await hydrateWorkspaceFromStorage(projectId, job.user_id, supabase);
+
+          if (hydrated > 0) {
+            await emitEvent(
+              supabase,
+              job.id,
+              'file_chunk' as any,
+              `📦 Restored ${hydrated} file(s) + project memory from the previous chat`,
+              { continuation: true, hydrated },
+            );
+          }
+        } catch (hydrateErr) {
+          logger.warn(`Job ${job.id}: workspace hydration failed: ${hydrateErr}`);
+        }
 
         /*
          * Use the Orchestrator (multi-agent system).

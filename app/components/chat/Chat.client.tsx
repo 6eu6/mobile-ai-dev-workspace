@@ -142,9 +142,7 @@ function buildWorkerStreamContent(state: import('~/lib/hooks/use-external-worker
   }
 
   if (todosCount > 0) {
-    const lastTodo = state.events
-      .filter((e) => e.type === 'todos_updated')
-      .slice(-1)[0];
+    const lastTodo = state.events.filter((e) => e.type === 'todos_updated').slice(-1)[0];
 
     if (lastTodo?.message) {
       parts.push(lastTodo.message);
@@ -410,8 +408,10 @@ export const ChatImpl = memo(
       const metadata = chatMetadata.get();
 
       if (metadata?.palmkitJobId && extWorkerState.status === 'idle' && !extWorkerState.jobId) {
-        // Restore the job — this starts polling which processes ALL events
-        // through dispatchJobEvent, populating the progress stores.
+        /*
+         * Restore the job — this starts polling which processes ALL events
+         * through dispatchJobEvent, populating the progress stores.
+         */
         restoreExtJob(metadata.palmkitJobId);
       }
     }, [externalWorkerEnabled, extWorkerState.status, extWorkerState.jobId, restoreExtJob]);
@@ -926,7 +926,16 @@ export const ChatImpl = memo(
          * and the chat can be saved to IndexedDB.
          * Without this, the URL shows /chat/NaN and the chat is lost on refresh.
          */
-        const workerChatId = `${Date.now()}`;
+        /*
+         * Normally each new build mints a fresh chat/project id. But when THIS
+         * chat was created via "Continue in a fresh chat", its workspace (the
+         * carried-over files + memory + handoff) already lives under the current
+         * chat id. Reusing that id makes the worker hydrate + continue that
+         * workspace instead of starting an empty project under a new id.
+         */
+        const continuedFrom = chatMetadata.get()?.continuedFrom;
+        const existingChatId = chatId.get();
+        const workerChatId = continuedFrom && existingChatId ? existingChatId : `${Date.now()}`;
         const workerDescription = finalMessageContent.slice(0, 50);
         chatId.set(workerChatId);
         descriptionAtom.set(workerDescription);

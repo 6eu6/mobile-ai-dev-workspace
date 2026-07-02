@@ -32,6 +32,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { detectAppTypeFromFiles, type FileOperation } from './generator';
 import {
   readWorklog,
+  readWorkspaceFile,
   appendToWorklog,
   readManifest,
   writeManifest,
@@ -73,6 +74,30 @@ export async function runOrchestratedBuild(
   // Read worklog for context
   const worklog = await readWorklog(projectId);
   const hasWorklog = !!worklog;
+
+  /*
+   * CONTINUATION HANDOFF — when this project was forked from another chat
+   * ("Continue in a fresh chat"), /api/fork-chat wrote .palmkit/handoff.md: a
+   * compact brief of the carried-over project (type, stack, files, last state,
+   * suggested next step). Injecting it into the agents' prompts GUARANTEES the
+   * model knows it is CONTINUING an existing project — with its real state —
+   * before it does anything, instead of blindly rebuilding from scratch.
+   */
+  const handoff = await readWorkspaceFile(projectId, '.palmkit/handoff.md');
+  const handoffBlock = handoff
+    ? `\n\n=== CONTINUATION HANDOFF (this project was carried over from a previous chat — you are CONTINUING it, not starting over) ===\n${handoff}\n=== END HANDOFF ===\n`
+    : '';
+
+  if (handoff) {
+    logger.info(`[orchestrator] Continuation handoff found for ${projectId} (${handoff.length} chars) — injecting into agents`);
+    await emitEvent(
+      supabase,
+      jobId,
+      'file_chunk' as any,
+      '🧬 Continuing a project carried over from a previous chat — loaded its handoff memory',
+      { continuation: true },
+    );
+  }
 
   // Create all tools (shared across agents, filtered per agent)
   const allTools = createAgentTools(jobId, supabase, projectId);
@@ -174,11 +199,15 @@ export async function runOrchestratedBuild(
       let agentPrompt = prompt;
 
       if (role === 'researcher' && hasWorklog) {
-        agentPrompt = `${prompt}\n\nPROJECT MEMORY (worklog.md):\n${worklog}`;
+        agentPrompt = `${prompt}${handoffBlock}\n\nPROJECT MEMORY (worklog.md):\n${worklog}`;
       }
 
       if (role === 'builder' && researcherContext) {
-        agentPrompt = `${prompt}\n\nRESEARCHER FINDINGS:\n${researcherContext}\n\nNow build the project based on these findings and the user's request.`;
+        agentPrompt = `${prompt}${handoffBlock}\n\nRESEARCHER FINDINGS:\n${researcherContext}\n\nNow build the project based on these findings and the user's request.`;
+      } else if (role === 'builder' && handoffBlock) {
+        // No researcher context (e.g. Researcher skipped) but this IS a
+        // continuation — make sure the Builder still sees the handoff.
+        agentPrompt = `${prompt}${handoffBlock}\n\nThis is a continuation of an existing project. Use read_file/list_files to inspect the carried-over files before changing them; do not rebuild from scratch.`;
       }
 
       // Repair round: a previous build failed — give the Builder the exact
